@@ -24,5 +24,3 @@ This section contains documentation for various security tools, configurations, 
     {% endif %}
   {% endfor %}
 </ul>
-
-[← Back to Home](/)

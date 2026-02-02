@@ -26,13 +26,6 @@ Welcome to my cybersecurity documentation site! Here you'll find detailed walkth
   {% endfor %}
 </ul>
 
-## Categories
-
-- [TryHackMe Walkthroughs](/category/tryhackme/)
-- [Hack The Box Walkthroughs](/category/hackthebox/)
-- [Network Labs](/category/network-labs/)
-- [Security Projects](/category/security-projects/)
-
 ## About
 
 This site documents my journey through various cybersecurity challenges, capture the flag (CTF) competitions, and hands-on lab exercises. Each walkthrough includes:
@@ -44,5 +37,3 @@ This site documents my journey through various cybersecurity challenges, capture
 - Lessons learned
 
 **Note:** All writeups follow responsible disclosure guidelines and are published only after challenges have been retired or permission has been granted.
-
-[Read more about this site →](/about/)

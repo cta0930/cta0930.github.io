@@ -24,5 +24,3 @@ This section contains detailed walkthroughs for various TryHackMe rooms and chal
     {% endif %}
   {% endfor %}
 </ul>
-
-[← Back to Home](/)

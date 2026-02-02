@@ -1,6 +1,6 @@
 <aside id="sidebar">
   <!-- Sidebar Toggle Button -->
-  <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle Sidebar">
+  <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle Sidebar" title="Toggle Sidebar">
     <span class="toggle-icon">‹</span>
   </button>
   
@@ -27,38 +27,38 @@
     <nav class="sidebar-nav">
       <ul>
         <li>
-          <a href="{{ '/' | relative_url }}" {% if page.url == '/' %}class="active"{% endif %}>
+          <a href="{{ '/' | relative_url }}" {% if page.url == '/' %}class="active"{% endif %} title="Home">
             <span class="nav-icon">🏠</span>
             <span class="nav-text">Home</span>
           </a>
         </li>
         <li>
-          <a href="{{ '/about/' | relative_url }}" {% if page.url == '/about/' %}class="active"{% endif %}>
+          <a href="{{ '/about/' | relative_url }}" {% if page.url == '/about/' %}class="active"{% endif %} title="About">
             <span class="nav-icon">👤</span>
             <span class="nav-text">About</span>
           </a>
         </li>
         <li class="nav-section">Categories</li>
         <li>
-          <a href="{{ '/category/tryhackme/' | relative_url }}">
+          <a href="{{ '/category/tryhackme/' | relative_url }}" title="TryHackMe">
             <span class="nav-icon">🚩</span>
             <span class="nav-text">TryHackMe</span>
           </a>
         </li>
         <li>
-          <a href="{{ '/category/hackthebox/' | relative_url }}">
+          <a href="{{ '/category/hackthebox/' | relative_url }}" title="Hack The Box">
             <span class="nav-icon">📦</span>
             <span class="nav-text">Hack The Box</span>
           </a>
         </li>
         <li>
-          <a href="{{ '/category/network-labs/' | relative_url }}">
+          <a href="{{ '/category/network-labs/' | relative_url }}" title="Network Labs">
             <span class="nav-icon">🌐</span>
             <span class="nav-text">Network Labs</span>
           </a>
         </li>
         <li>
-          <a href="{{ '/category/security-projects/' | relative_url }}">
+          <a href="{{ '/category/security-projects/' | relative_url }}" title="Security Projects">
             <span class="nav-icon">🔒</span>
             <span class="nav-text">Security Projects</span>
           </a>

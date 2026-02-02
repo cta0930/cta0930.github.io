@@ -24,5 +24,3 @@ This section contains documentation for network configuration labs and projects.
     {% endif %}
   {% endfor %}
 </ul>
-
-[← Back to Home](/)

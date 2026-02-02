@@ -2,6 +2,10 @@
 title: Security Walkthroughs
 description: TryHackMe, Hack The Box, and Network Lab Walkthroughs
 author: cta0930
+tagline: CTF & Pentesting Labs
+
+# Sidebar settings (Chirpy-style)
+# avatar: /assets/img/avatar.jpg  # Uncomment and set path to your avatar image
 
 # GitHub Pages remote theme
 remote_theme: pages-themes/hacker@v0.2.0

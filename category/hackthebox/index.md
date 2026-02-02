@@ -26,5 +26,3 @@ This section contains detailed walkthroughs for retired Hack The Box machines an
     {% endif %}
   {% endfor %}
 </ul>
-
-[← Back to Home](/)

@@ -5,7 +5,7 @@ author: cta0930
 tagline: CTF & Pentesting Labs
 
 # Sidebar settings (Chirpy-style)
-# avatar: /assets/img/avatar.jpg  # Uncomment and set path to your avatar image
+avatar: /assets/pp.jpg  # Profile photo for sidebar
 
 # GitHub Pages remote theme
 remote_theme: pages-themes/hacker@v0.2.0

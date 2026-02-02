@@ -94,7 +94,3 @@ For questions, suggestions, or collaboration opportunities:
 ## Contributing
 
 Interested in contributing? Check out the [Contributing Guide]({{ site.baseurl }}/CONTRIBUTING.md) for guidelines on adding walkthroughs and improving the site.
-
----
-
-[← Back to Home](/)

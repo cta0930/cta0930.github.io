@@ -23,7 +23,7 @@
     
     // Save state to localStorage
     const isCollapsed = sidebar.classList.contains('collapsed');
-    localStorage.setItem('sidebarCollapsed', isCollapsed);
+    localStorage.setItem('sidebarCollapsed', String(isCollapsed));
   });
   
 })();

@@ -44,3 +44,5 @@ This site documents my journey through various cybersecurity challenges, capture
 - Lessons learned
 
 **Note:** All writeups follow responsible disclosure guidelines and are published only after challenges have been retired or permission has been granted.
+
+[Read more about this site →](/about/)

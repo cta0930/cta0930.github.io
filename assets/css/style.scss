@@ -1,0 +1,130 @@
+---
+---
+
+@import "{{ site.theme }}";
+
+/* Custom styles for security walkthroughs */
+
+/* Post metadata styling */
+.post-date {
+  color: #b5e853;
+  font-size: 0.9em;
+  margin-left: 10px;
+}
+
+.post-category {
+  color: #00d9ff;
+  font-size: 0.9em;
+  margin-left: 5px;
+}
+
+.post-tags {
+  color: #888;
+  font-size: 0.85em;
+  margin-top: 5px;
+  font-style: italic;
+}
+
+/* Code block enhancements */
+pre {
+  background-color: #151515;
+  border: 1px solid #00d9ff;
+  padding: 15px;
+  overflow-x: auto;
+}
+
+code {
+  color: #b5e853;
+  font-family: 'Monaco', 'Courier New', monospace;
+}
+
+/* List styling for walkthroughs */
+ul {
+  list-style-type: none;
+  padding-left: 0;
+}
+
+ul li {
+  padding: 8px 0;
+  border-bottom: 1px solid #222;
+}
+
+ul li:last-child {
+  border-bottom: none;
+}
+
+/* Links */
+a {
+  color: #00d9ff;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #b5e853;
+  text-decoration: underline;
+}
+
+/* Headers in posts */
+h1, h2, h3 {
+  color: #b5e853;
+  margin-top: 30px;
+  margin-bottom: 15px;
+}
+
+h1 {
+  border-bottom: 2px solid #00d9ff;
+  padding-bottom: 10px;
+}
+
+/* Table styling for enumeration results */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+}
+
+table th {
+  background-color: #0e0e0e;
+  color: #00d9ff;
+  padding: 10px;
+  text-align: left;
+  border: 1px solid #222;
+}
+
+table td {
+  padding: 8px;
+  border: 1px solid #222;
+}
+
+table tr:nth-child(even) {
+  background-color: #0a0a0a;
+}
+
+/* Warning/Note boxes */
+blockquote {
+  border-left: 4px solid #b5e853;
+  padding-left: 15px;
+  margin-left: 0;
+  color: #aaa;
+  font-style: italic;
+}
+
+/* Navigation improvements */
+nav {
+  margin-bottom: 30px;
+}
+
+/* Home page category boxes */
+.category-box {
+  display: inline-block;
+  margin: 10px;
+  padding: 15px 25px;
+  background-color: #151515;
+  border: 1px solid #00d9ff;
+  border-radius: 3px;
+}
+
+.category-box:hover {
+  background-color: #1a1a1a;
+  border-color: #b5e853;
+}

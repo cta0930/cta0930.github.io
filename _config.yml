@@ -1,0 +1,40 @@
+# Site settings
+title: Security Walkthroughs
+description: TryHackMe, Hack The Box, and Network Lab Walkthroughs
+author: cta0930
+
+# GitHub Pages remote theme
+remote_theme: pages-themes/hacker@v0.2.0
+plugins:
+  - jekyll-remote-theme
+  - jekyll-feed
+  - jekyll-seo-tag
+
+# Build settings
+markdown: kramdown
+permalink: /:year/:month/:day/:title/
+
+# Collections
+collections:
+  posts:
+    output: true
+    permalink: /:collection/:year/:month/:day/:title/
+
+# GitHub repository (for edit links)
+repository: cta0930/cta0930.github.io
+
+# Social/Contact
+github_username: cta0930
+
+# Exclude from processing
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor/bundle/
+  - vendor/cache/
+  - vendor/gems/
+  - vendor/ruby/
+  - README.md
+  - LICENSE
+  - CONTRIBUTING.md

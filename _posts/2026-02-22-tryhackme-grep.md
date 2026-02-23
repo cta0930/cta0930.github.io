@@ -69,7 +69,7 @@ Service Info: Host: ip-10-64-151-118.ec2.internal; OS: Linux; CPE: cpe:/o:linux:
 echo '10.65.181.247   grep.thm' >> /etc/hosts
 ```
 
-![First Glance](../assets/Screenshots/grep/Screenshot%202026-02-22%20005943%20-%20Copy.png)
+![First Glance](/assets/Screenshots/grep/Screenshot%202026-02-22%20005943%20-%20Copy.png)
 
 ### Web Enumeration
 
@@ -108,23 +108,23 @@ Finished
 
 Not much found with gobuster but lets inspect the page source and content from the web for some ideas of what else is driving the site...
 
-![Page Source](../assets/Screenshots/grep/Screenshot%202026-02-22%20224424%20-%20Copy.png)
+![Page Source](/assets/Screenshots/grep/Screenshot%202026-02-22%20224424%20-%20Copy.png)
 
-![JS Find](../assets/Screenshots/grep/Screenshot%202026-02-22%20224442%20-%20Copy.png)
+![JS Find](/assets/Screenshots/grep/Screenshot%202026-02-22%20224442%20-%20Copy.png)
 
 Doing this I found login.php and register.php as well as api/register.js which has an api listed. However, when trying to register, I get a warning about an incorrect api.
 
-![Registration Failure](../assets/Screenshots/grep/Screenshot%202026-02-22%20224517%20-%20Copy.png)
+![Registration Failure](/assets/Screenshots/grep/Screenshot%202026-02-22%20224517%20-%20Copy.png)
 
 From the OSINT hunting using SuperSecure Corp there is a GitHub which seemed like a valuable find at first. It even said not to look at the repo history. That is a useful hint. 
 
-![OSINT](../assets/Screenshots/grep/Screenshot%202026-02-22%20222059%20-%20Copy.png)
+![OSINT](/assets/Screenshots/grep/Screenshot%202026-02-22%20222059%20-%20Copy.png)
 
-![OSINT 2](../assets/Screenshots/grep/Screenshot%202026-02-22%20222151%20-%20Copy.png)
+![OSINT 2](/assets/Screenshots/grep/Screenshot%202026-02-22%20222151%20-%20Copy.png)
 
 Although this turned up nothing particulary useful at first, I took that hint and searched for SearchMeCMS which did turn up a useful find.
 
-![OSINT 3](../assets/Screenshots/grep/Screenshot%202026-02-22%20223054%20-%20Copy.png)
+![OSINT 3](/assets/Screenshots/grep/Screenshot%202026-02-22%20223054%20-%20Copy.png)
 
 Reviewing the commit history I found a commit comment to remove key which shows the former api.
 
@@ -132,7 +132,7 @@ Reviewing the commit history I found a commit comment to remove key which shows 
 - `api/register.php` -
 ['X-THM-API-Key'] === 'ffe60ecaa8bba2f12b43d1a4b15b8f39'
 
-![API Screenshot](../assets/Screenshots/grep/Screenshot%202026-02-22%20223152%20-%20Copy.png)
+![API Screenshot](/assets/Screenshots/grep/Screenshot%202026-02-22%20223152%20-%20Copy.png)
 
 ## Initial Access
 
@@ -140,12 +140,12 @@ Reviewing the commit history I found a commit comment to remove key which shows 
 
 Using Burpsuite I captured an attempt to register but this time with the alternate api in hand, I use FoxyProxy to intercept and send it to repeater to input the api.
 
-![Burpsuite Screenshot](../assets/Screenshots/grep/Screenshot%202026-02-22%20225813%20-%20Copy.png)
+![Burpsuite Screenshot](/assets/Screenshots/grep/Screenshot%202026-02-22%20225813%20-%20Copy.png)
 
-![Burpsuite Screenshot 2](../assets/Screenshots/grep/Screenshot%202026-02-22%20225753%20-%20Copy.png)
+![Burpsuite Screenshot 2](/assets/Screenshots/grep/Screenshot%202026-02-22%20225753%20-%20Copy.png)
 
 ### First Flag
-![First Flag Screenshot](../assets/Screenshots/grep/Screenshot%202026-02-22%20225901%20-%20Copy.png)
+![First Flag Screenshot](/assets/Screenshots/grep/Screenshot%202026-02-22%20225901%20-%20Copy.png)
 
 ## More Discovery
 Now that we are logged in, there may be more content to find at grep.thm/public/html/*
@@ -188,7 +188,7 @@ Progress: 9226 / 9226 (100.00%)
 Finished
 ===============================================================
 
-Within this scan we can see upload.php so we need to see what can be done here. I assume I can upload something and defualt to PHP since we know there is plenty of proof that PHP is in use here.
+Within this scan we can see upload.php so we need to see what can be done here. I assume I can upload something and default to PHP since we know there is plenty of proof that PHP is in use here.
 
 [https://revshells.com](https://revshells.com)
 
@@ -236,11 +236,11 @@ It should show that it is a jpeg..
 
 Reattempt upload: SUCCESS!
 
-![Upload](../assets/Screenshots/grep/Screenshot%202026-02-22%20232424%20-%20Copy.png)
+![Upload](/assets/Screenshots/grep/Screenshot%202026-02-22%20232424%20-%20Copy.png)
 
 Now lets back it up and see if we can access grep.thm/api/uploads/ or just input grep.thm/api/uploads/shell.php with the Netcat listener running.
 
-![Uploads](../assets/Screenshots/grep/Screenshot%202026-02-22%20232441%20-%20Copy.png)
+![Uploads](/assets/Screenshots/grep/Screenshot%202026-02-22%20232441%20-%20Copy.png)
 
 Now I have a reverse shell now. Time to stablize it before poking around to avoid cli errors.
 
@@ -291,7 +291,7 @@ Lets jump over to leakchecker.grep.thm:51337 (port found in the early NMAP scan)
 
 Add the admin email we found and we get the output and answer to the final question.
 
-![Email Leak Checker](../assets/Screenshots/grep/Screenshot%202026-02-22%20234605%20-%20Copy.png)
+![Email Leak Checker](/assets/Screenshots/grep/Screenshot%202026-02-22%20234605%20-%20Copy.png)
 
 ## Room Complete!
 

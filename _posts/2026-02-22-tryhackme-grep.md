@@ -31,6 +31,7 @@ nmap -sC -sV -oN -p- -Pn  grep.txt 10.64.151.118
 ```
 
 **Results:**
+```bash
 Starting Nmap 7.98 ( https://nmap.org ) at 2026-02-22 23:42 -0500
 Nmap scan report for grep.thm (10.64.151.118)
 Host is up (0.041s latency).
@@ -62,6 +63,7 @@ PORT      STATE SERVICE  VERSION
 |_http-title: 400 Bad Request
 |_http-server-header: Apache/2.4.41 (Ubuntu)
 Service Info: Host: ip-10-64-151-118.ec2.internal; OS: Linux; CPE: cpe:/o:linux:linux_kernel
+```
 
 ### Add Finding to /etc/hosts
 
@@ -80,6 +82,7 @@ gobuster dir -u http://grep.thm -w /usr/share/wordlists/dirb/common.txt
 ┌──(kali㉿kali)-[~/Documents/THM/KOTH]
 └─$ gobuster dir -u http://grep.thm -w /usr/share/wordlists/dirb/common.txt
 
+```bash
 ===============================================================
 Gobuster v3.8.2
 by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
@@ -105,6 +108,7 @@ Progress: 4613 / 4613 (100.00%)
 ===============================================================
 Finished
 ===============================================================
+```
 
 Not much found with gobuster but lets inspect the page source and content from the web for some ideas of what else is driving the site...
 
@@ -152,7 +156,7 @@ Now that we are logged in, there may be more content to find at grep.thm/public/
 
 ```bash
 gobuster dir -u https://grep.thm/public/html/ -w /usr/share/dirb/wordlists/common.txt -k -x .php
-```
+
 ┌──(kali㉿kali)-[~/Documents/THM/grep]
 └─$ gobuster dir -u https://grep.thm/public/html/ -w /usr/share/dirb/wordlists/common.txt -k -x .php
 ===============================================================
@@ -187,6 +191,7 @@ Progress: 9226 / 9226 (100.00%)
 ===============================================================
 Finished
 ===============================================================
+```
 
 Within this scan we can see upload.php so we need to see what can be done here. I assume I can upload something and default to PHP since we know there is plenty of proof that PHP is in use here.
 

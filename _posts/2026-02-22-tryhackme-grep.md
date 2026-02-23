@@ -195,9 +195,7 @@ Finished
 
 Within this scan we can see upload.php so we need to see what can be done here. I assume I can upload something and default to PHP since we know there is plenty of proof that PHP is in use here.
 
-<a href="https://revshells.com" target="_blank" rel="noopener noreferrer">
-  RevShells
-</a>
+[RevShells](https://revshells.com){:target="_blank"}
 
 Grab the PHP from PentestMonkey making sure to add your IP and Port.
 
@@ -228,14 +226,10 @@ Add the magic bytes for JPG/JPEG: ff d8 ff e0
 esc -> :wq to save/quit
 
 There are several options to do this including:
-<a href="https://hexed.it" target="_blank" rel="noopener noreferrer">
-  Hexed.it
-</a>
+[Hexed.it](https://hexed.it){:target="_blank"}
 
 I just use hexed because it's quick and easy. You can find plenty of information about magic bytes in order to do this as well. I pulled the magic bytes from:
-<a href="https://gist.github.com/leommoore/f9e57ba2aa4bf197ebc5" target="_blank" rel="noopener noreferrer">
-  Useful Gist
-</a>
+[Useful Gist](https://gist.github.com/leommoore/f9e57ba2aa4bf197ebc5){:target="_blank"}
 
 Give your file a quick check:
 

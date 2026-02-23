@@ -3,7 +3,7 @@ layout: post
 title: "Grep TryHackMe Walkthrough"
 date: 2026-02-22
 category: tryhackme
-tags: [reconnaissance , OSINT, apache2]
+tags: [tryhackme, osint, reconnaissance, web-exploitation, file-upload, php, burpsuite]
 ---
 
 # TryHackMe - Grep Walkthrough
@@ -24,7 +24,7 @@ Your goal is to identify and exploit vulnerabilities in the application using a 
 
 ## Enumeration
 
-### Nmap Scan
+### Network Scannig
 
 ```bash
 nmap -sC -sV -oN -p- -Pn  grep.txt 10.64.151.118
@@ -120,6 +120,8 @@ Doing this I found login.php and register.php as well as api/register.js which h
 
 ![Registration Failure](/assets/Screenshots/grep/Screenshot%202026-02-22%20224517%20-%20Copy.png)
 
+### OSINT Investigation
+
 From the OSINT hunting using SuperSecure Corp there is a GitHub which seemed like a valuable find at first. It even said not to look at the repo history. That is a useful hint. 
 
 ![OSINT](/assets/Screenshots/grep/Screenshot%202026-02-22%20222059%20-%20Copy.png)
@@ -136,22 +138,23 @@ Reviewing the commit history I found a commit comment to remove key which shows 
 - `api/register.php` -
 ['X-THM-API-Key'] === 'ffe60ecaa8bba2f12b43d1a4b15b8f39'
 
-![API Screenshot](/assets/Screenshots/grep/Screenshot%202026-02-22%20223152%20-%20Copy.png)
+![API](/assets/Screenshots/grep/Screenshot%202026-02-22%20223152%20-%20Copy.png)
 
 ## Initial Access
 
-### Exploitation
+### API Key Abuse & Registration Bypass
 
 Using Burpsuite I captured an attempt to register but this time with the alternate api in hand, I use FoxyProxy to intercept and send it to repeater to input the api.
 
-![Burpsuite Screenshot](/assets/Screenshots/grep/Screenshot%202026-02-22%20225813%20-%20Copy.png)
+![Burpsuite](/assets/Screenshots/grep/Screenshot%202026-02-22%20225813%20-%20Copy.png)
 
-![Burpsuite Screenshot 2](/assets/Screenshots/grep/Screenshot%202026-02-22%20225753%20-%20Copy.png)
+![Burpsuite 2](/assets/Screenshots/grep/Screenshot%202026-02-22%20225753%20-%20Copy.png)
 
 ### First Flag
-![First Flag Screenshot](/assets/Screenshots/grep/Screenshot%202026-02-22%20225901%20-%20Copy.png)
+![First Flag](/assets/Screenshots/grep/Screenshot%202026-02-22%20225901%20-%20Copy.png)
 
-## More Discovery
+## Post-Authentication Enumeration
+
 Now that we are logged in, there may be more content to find at grep.thm/public/html/*
 
 ```bash
@@ -194,6 +197,10 @@ Finished
 ```
 
 Within this scan we can see upload.php so we need to see what can be done here. I assume I can upload something and default to PHP since we know there is plenty of proof that PHP is in use here.
+
+## Exploitation
+
+## File Upload Bypass
 
 [RevShells](https://revshells.com){:target="_blank"}
 
@@ -247,6 +254,10 @@ Now lets back it up and see if we can access grep.thm/api/uploads/ or just input
 
 ![Uploads](/assets/Screenshots/grep/Screenshot%202026-02-22%20232441%20-%20Copy.png)
 
+## Post-Exploitation
+
+### Reverse Shell & Stablization
+
 Now I have a reverse shell now. Time to stablize it before poking around to avoid cli errors.
 
 Before I do this I check to see if python is installed:
@@ -277,7 +288,8 @@ ctl + z to background session
 stty raw -echo;fg
 ```
 
-### Enumeration
+### Local Enumeration
+
 Reviewing what I have within /var/www there is a backup directory which I found worth checking first. Within it users.sql contains the admin email address.
 
 ```bash
@@ -298,6 +310,14 @@ Add the admin email we found and we get the output and answer to the final quest
 
 ![Email Leak Checker](/assets/Screenshots/grep/Screenshot%202026-02-22%20234605%20-%20Copy.png)
 
-## Room Complete!
+## Key Takeaways
+
+- OSINT through GitHub commit history
+- API key discovery
+- Auth bypass via modified headers
+- File upload bypass using magic bytes
+- Reverse shell & privilege context enumeration
+
+# Room Complete!
 
 **Disclaimer:** This walkthrough is for educational purposes only. Always obtain proper authorization before testing any system.

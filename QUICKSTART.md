@@ -14,10 +14,10 @@ This guide will help you quickly understand how to use and contribute to this Gi
 
 - **Homepage:** [cta0930.github.io](https://cta0930.github.io)
 - **Categories:**
-  - [TryHackMe](https://cta0930.github.io/category/tryhackme/)
-  - [Hack The Box](https://cta0930.github.io/category/hackthebox/)
-  - [Network Labs](https://cta0930.github.io/category/network-labs/)
-  - [Security Projects](https://cta0930.github.io/category/security-projects/)
+  - [TryHackMe](https://cta0930.github.io/categories/TryHackMe/)
+  - [Hack The Box](https://cta0930.github.io/categories/HackTheBox/)
+  - [Network Labs](https://cta0930.github.io/categories/NetworkLabs/)
+  - [Security Projects](https://cta0930.github.io/categories/SecurityProjects/)
 
 ### Navigation
 
@@ -40,7 +40,7 @@ This guide will help you quickly understand how to use and contribute to this Gi
    layout: post
    title: "Your Walkthrough Title"
    date: YYYY-MM-DD
-   category: tryhackme
+   categories: [TryHackMe]  # or [HackTheBox], [NetworkLabs], [SecurityProjects]
    tags: [tag1, tag2, tag3]
    ---
    ```
@@ -58,14 +58,14 @@ This guide will help you quickly understand how to use and contribute to this Gi
 
 ### Available Categories
 
-- `tryhackme` - TryHackMe challenges
-- `hackthebox` - Hack The Box machines (retired only)
-- `network-labs` - Network configuration projects
-- `security-projects` - Security tools and projects
+- `TryHackMe` - TryHackMe challenges
+- `HackTheBox` - Hack The Box machines (retired only)
+- `NetworkLabs` - Network configuration projects
+- `SecurityProjects` - Security tools and projects
 
 ### Post Template
 
-See `_posts/2024-01-15-tryhackme-basic-pentesting.md` for a complete example.
+See any post in `_posts/` for a complete example.
 
 ## Site Structure
 
@@ -73,14 +73,9 @@ See `_posts/2024-01-15-tryhackme-basic-pentesting.md` for a complete example.
 .
 ├── _config.yml              # Site configuration
 ├── _posts/                  # Walkthrough posts
-├── category/                # Category pages
-│   ├── tryhackme/
-│   ├── hackthebox/
-│   ├── network-labs/
-│   └── security-projects/
-├── assets/css/              # Custom styles
-├── index.md                 # Homepage
-├── about.md                 # About page
+├── _tabs/                   # Navigation tab pages (about, archives, categories, tags)
+├── assets/                  # Images and other static assets
+├── index.html               # Homepage
 ├── README.md                # Documentation
 ├── CONTRIBUTING.md          # Contribution guide
 └── Gemfile                  # Ruby dependencies
@@ -104,7 +99,7 @@ bundle exec jekyll serve
 
 - **Branch:** Changes pushed to `main` branch are automatically deployed
 - **Build Time:** Usually 1-2 minutes after push
-- **Theme:** Hacker theme (terminal-style aesthetic)
+- **Theme:** Chirpy theme (clean, responsive layout with sidebar navigation)
 - **Custom Domain:** Can be configured in repository settings
 
 ## Customization
@@ -117,13 +112,9 @@ title: Your Site Title
 description: Your site description
 ```
 
-### Adding Custom Styles
-
-Edit `assets/css/style.scss` to customize the appearance.
-
 ### Modifying Homepage
 
-Edit `index.md` to change the homepage content.
+Edit `index.html` to change the homepage layout.
 
 ## Troubleshooting
 
@@ -143,17 +134,17 @@ Edit `index.md` to change the homepage content.
 
 ### Theme Not Loading
 
-1. Check `remote_theme` setting in `_config.yml`
-2. Verify plugins are listed correctly
+1. Check `theme` setting in `_config.yml`
+2. Verify `Gemfile` includes `gem "jekyll-theme-chirpy"`
 3. Check GitHub Actions build logs
 
 ## More Information
 
 - [Full Documentation](README.md)
 - [Contributing Guidelines](CONTRIBUTING.md)
-- [About This Site](about.md)
 - [Jekyll Documentation](https://jekyllrb.com/docs/)
 - [GitHub Pages Documentation](https://docs.github.com/en/pages)
+- [Chirpy Theme Documentation](https://chirpy.cotes.page/)
 
 ## Support
 

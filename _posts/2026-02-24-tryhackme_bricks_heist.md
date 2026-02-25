@@ -64,11 +64,11 @@ Nmap done: 1 IP address (1 host up) scanned in 39.64 seconds
 
 From visiting the site while the scan was running, I used Wappalyzer to get an idea of what is driving this site.
 
-![First Glance](/assets/Screenshots/Bricks/wapp.png)
+![First Glance](/assets/Screenshots/bricks/wapp.png)
 
 I also checked for robots.txt and found a couple options to explore.
 
-![robots.txt](/assets/Screenshots/Bricks/robots.png)
+![robots.txt](/assets/Screenshots/bricks/robots.png)
 
 Lets also do a wpscan to see what we see. If you haven't already, you can grab an API from wpscan.com to get vulnerability data. It is limited to 25 daily requests but free is free so I can't complain.
 
@@ -334,13 +334,13 @@ python3 ./cve-2024-25600.py -u https://bricks.thm
 
 Worked as promised!
 
-![poc](/assets/Screenshots/Bricks/poc.png)
+![poc](/assets/Screenshots/bricks/poc.png)
 
 Lets grab a better reverse shell since this isn't ideal. *I did try a couple other rev shells commands to see what would work and nc mkfifo was the winner*
 
-![revshell](/assets/Screenshots/Bricks/revshell.png)
+![revshell](/assets/Screenshots/bricks/revshell.png)
 
-![revshell2](/assets/Screenshots/Bricks/revshell2.png)
+![revshell2](/assets/Screenshots/bricks/revshell2.png)
 
 Stabalize:
 
@@ -361,7 +361,7 @@ stty raw -echo;fg
 ### Question 1 — Hidden Web File
 > What is the content of the hidden .txt file in the web folder?
 
-![flag](/assets/Screenshots/Bricks/flag.png)
+![flag](/assets/Screenshots/bricks/flag.png)
 
 ### Question 2 - Suspicous Process Name
 
@@ -443,7 +443,7 @@ Now we need to search up the blockchain address using:
 
 [Blockchain Explorer](https://www.blockchain.com/explorer){:target="_blank"}
 
-![Blockchain](/assets/Screenshots/Bricks/blockchain.png)
+![Blockchain](/assets/Screenshots/bricks/blockchain.png)
 
 Looking through the transactions, I googled each one to see if any would come up related to threat groups.
 

@@ -1,6 +1,6 @@
 # Security Walkthroughs
 
-GitHub Pages site for TryHackMe, Hack The Box, and other security walkthroughs using the Hacker Jekyll theme.
+GitHub Pages site for TryHackMe, Hack The Box, and other security walkthroughs using the Chirpy Jekyll theme.
 
 ## 🚀 Live Site
 
@@ -49,7 +49,7 @@ bundle exec jekyll serve
 layout: post
 title: "Your Walkthrough Title"
 date: YYYY-MM-DD
-category: tryhackme  # or hackthebox, network-labs, security-projects
+categories: [TryHackMe]  # or [HackTheBox], [NetworkLabs], [SecurityProjects]
 tags: [tag1, tag2, tag3]
 ---
 
@@ -66,10 +66,10 @@ tags: [tag1, tag2, tag3]
 
 ### Categories
 
-- `tryhackme` - TryHackMe challenges
-- `hackthebox` - Hack The Box machines
-- `network-labs` - Network configuration labs
-- `security-projects` - Security tools and projects
+- `TryHackMe` - TryHackMe challenges
+- `HackTheBox` - Hack The Box machines
+- `NetworkLabs` - Network configuration labs
+- `SecurityProjects` - Security tools and projects
 
 ## 📂 Project Structure
 
@@ -77,19 +77,16 @@ tags: [tag1, tag2, tag3]
 .
 ├── _config.yml           # Site configuration
 ├── _posts/               # Blog posts (walkthroughs)
-├── category/             # Category pages
-│   ├── tryhackme/
-│   ├── hackthebox/
-│   ├── network-labs/
-│   └── security-projects/
-├── index.md              # Homepage
+├── _tabs/                # Navigation tab pages (about, archives, categories, tags)
+├── assets/               # Images and other assets
+├── index.html            # Homepage
 ├── Gemfile               # Ruby dependencies
 └── README.md             # This file
 ```
 
 ## 🎨 Theme
 
-This site uses the [Hacker theme](https://github.com/pages-themes/hacker) which provides a terminal-style aesthetic perfect for cybersecurity content.
+This site uses the [Chirpy theme](https://github.com/cotes2020/jekyll-theme-chirpy) which provides a clean, responsive layout with built-in support for categories, tags, archives, and table of contents — well-suited for technical writeups and walkthroughs.
 
 ## 📜 License
 

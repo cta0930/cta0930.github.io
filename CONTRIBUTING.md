@@ -31,16 +31,16 @@ At the top of your file, add the YAML front matter:
 layout: post
 title: "TryHackMe - Blue"
 date: 2024-01-20
-category: tryhackme
+categories: [TryHackMe]
 tags: [windows, eternalblue, metasploit]
 ---
 ```
 
 **Categories:**
-- `tryhackme` - TryHackMe rooms
-- `hackthebox` - Hack The Box machines (retired only)
-- `network-labs` - Network configuration projects
-- `security-projects` - Security tools and projects
+- `TryHackMe` - TryHackMe rooms
+- `HackTheBox` - Hack The Box machines (retired only)
+- `NetworkLabs` - Network configuration projects
+- `SecurityProjects` - Security tools and projects
 
 ### Step 3: Write Your Walkthrough
 
@@ -168,11 +168,10 @@ git push origin main
 
 If you want to include screenshots:
 
-1. Create an `assets/images/` directory
-2. Save images with descriptive names: `2024-01-20-machine-name-screenshot.png`
-3. Reference in markdown:
+1. Save images in `assets/Screenshots/` with descriptive names
+2. Reference in markdown:
 ```markdown
-![Description]({{ site.baseurl }}/assets/images/2024-01-20-machine-name-screenshot.png)
+![Description](/assets/Screenshots/machine-name/screenshot.png)
 ```
 
 ## Questions?

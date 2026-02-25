@@ -8,6 +8,8 @@ tags: [tryhackme, osint, reconnaissance, web-exploitation, file-upload, php, bur
 
 # Grep - TryHackMe Walkthrough
 
+[Grep - TryHackMe Room](https://tryhackme.com/room/greprtp){:target="_blank"}
+
 ## Overview
 
 **Difficulty:** Easy  

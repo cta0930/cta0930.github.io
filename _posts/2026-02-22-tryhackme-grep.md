@@ -6,7 +6,7 @@ category: tryhackme
 tags: [tryhackme, osint, reconnaissance, web-exploitation, file-upload, php, burpsuite]
 ---
 
-# TryHackMe - Grep Walkthrough
+# Grep - TryHackMe Walkthrough
 
 ## Overview
 

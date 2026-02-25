@@ -27,7 +27,7 @@ Your goal is to identify and exploit vulnerabilities in the application using a 
 ### Network Scannig
 
 ```bash
-nmap -sC -sV -oN -p- -Pn  grep.txt 10.64.151.118
+nmap -sC -sV -p- -Pn 10.64.151.118 -oN grep.txt
 ```
 
 **Results:**
@@ -68,7 +68,8 @@ Service Info: Host: ip-10-64-151-118.ec2.internal; OS: Linux; CPE: cpe:/o:linux:
 ### Add Finding to /etc/hosts
 
 ```bash
-echo '10.65.181.247   grep.thm' >> /etc/hosts
+sudo nano /etc/hosts
+add: '<targetip>   grep.thm'
 ```
 
 ![First Glance](/assets/Screenshots/grep/Screenshot%202026-02-22%20005943%20-%20Copy.png)
@@ -300,9 +301,8 @@ I also see leakchecker which is worth digging into based on the room questions. 
 
 ```bash
 sudo nano /etc/hosts
+add '{targetip} grep.thm leakchecker.grep.thm'
 ```
-
-{IP} grep.thm leakchecker.grep.thm
 
 Lets jump over to leakchecker.grep.thm:51337 (port found in the early NMAP scan)
 

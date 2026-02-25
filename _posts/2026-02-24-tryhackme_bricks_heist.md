@@ -8,6 +8,8 @@ tags: [tryhackme, osint, blockchain, web-exploitation, reverse shell, wordpress]
 
 # Bricks Heist - TryHackMe Walkthrough
 
+[Bricks Heist - TryHackMe Room](https://tryhackme.com/room/tryhack3mbricksheist){:target="_blank"}
+
 ## Overview
 
 **Difficulty:** Easy  

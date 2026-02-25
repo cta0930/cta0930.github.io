@@ -2,7 +2,7 @@
 layout: post
 title: "Grep TryHackMe Walkthrough"
 date: 2026-02-22
-category: tryhackme
+categories: [TryHackMe]
 tags: [tryhackme, osint, reconnaissance, web-exploitation, file-upload, php, burpsuite]
 ---
 

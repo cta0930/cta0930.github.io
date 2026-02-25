@@ -1,43 +1,89 @@
-# Site settings
+theme: jekyll-theme-chirpy
+
+lang: en
+timezone: America/New_York
+
 title: Walkthroughs
-description: TryHackMe, Hack The Box, and Cyber Lab Walkthroughs
-author: cta0930
 tagline: CTF & Pentesting Labs
+description: TryHackMe, Hack The Box, and Cyber Lab Walkthroughs
+url: "https://cta0930.github.io"
 
-# Sidebar settings (Chirpy-style)
-avatar: /assets/pp.jpg  # Profile photo for sidebar
+github:
+  username: cta0930
 
-# GitHub Pages remote theme
-remote_theme: pages-themes/hacker@v0.2.0
-plugins:
-  - jekyll-remote-theme
-  - jekyll-feed
-  - jekyll-seo-tag
+social:
+  name: cta0930
+  email: ""
+  links:
+    - https://github.com/cta0930
 
-# Build settings
-markdown: kramdown
-permalink: /:year/:month/:day/:title/
+avatar: /assets/pp.jpg
 
-# Collections
+toc: true
+
+comments:
+  active: ""
+
+paginate: 10
+
+kramdown:
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    css_class: highlight
+    default_lang: plaintext
+    span:
+      line_numbers: false
+    block:
+      line_numbers: true
+      start_line: 1
+
 collections:
-  posts:
+  tabs:
     output: true
-    permalink: /:collection/:year/:month/:day/:title/
+    sort_by: order
 
-# GitHub repository (for edit links)
-repository: cta0930/cta0930.github.io
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post
+      comments: false
+      toc: true
+      permalink: /posts/:title/
+  - scope:
+      path: _tabs
+      type: tabs
+    values:
+      layout: page
+      permalink: /:title/
 
-# Social/Contact
-github_username: cta0930
+sass:
+  style: compressed
 
-# Exclude from processing
+compress_html:
+  clippings: all
+  comments: all
+  endings: all
+  profile: false
+  blanklines: false
+  ignore:
+    envs: [development]
+
 exclude:
-  - Gemfile
-  - Gemfile.lock
-  - node_modules
-  - vendor/bundle/
-  - vendor/cache/
-  - vendor/gems/
-  - vendor/ruby/
+  - "*.gem"
+  - "*.gemspec"
   - README.md
   - LICENSE
+  - CONTRIBUTING.md
+  - QUICKSTART.md
+  - SETUP_SUMMARY.md
+
+jekyll-archives:
+  enabled: [categories, tags]
+  layouts:
+    category: category
+    tag: tag
+  permalinks:
+    tag: /tags/:name/
+    category: /categories/:name/

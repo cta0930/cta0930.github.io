@@ -2,7 +2,7 @@
 layout: post
 title: "Bricks Heist TryHackMe Walkthrough"
 date: 2026-02-24
-category: tryhackme
+categories: [TryHackMe]
 tags: [tryhackme, osint, blockchain, web-exploitation, reverse shell, wordpress]
 ---
 

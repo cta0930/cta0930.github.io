@@ -88,9 +88,9 @@ Security enthusiast documenting the journey through various cybersecurity challe
 ## Contact
 
 For questions, suggestions, or collaboration opportunities:
-- GitHub: [@cta0930](https://github.com/cta0930){target="_blank}
-- Issues: [Report an issue](https://github.com/cta0930/cta0930.github.io/issues){target="_blank}
+- GitHub: [@cta0930](https://github.com/cta0930){:target="_blank" rel="noopener"}
+- Issues: [Report an issue](https://github.com/cta0930/cta0930.github.io/issues){:target="_blank" rel="noopener"}
 
 ## Contributing
 
-Interested in contributing? Check out the [Contributing Guide](/CONTRIBUTING.md) for guidelines on adding walkthroughs and improving the site.
+Interested in contributing? Check out the [Contributing Guide](/contributing/){:target="_blank" rel="noopener"} for guidelines on adding walkthroughs and improving the site.

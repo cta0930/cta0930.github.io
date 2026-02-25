@@ -1,3 +1,9 @@
+---
+layout: page
+title: Contributing
+permalink: /contributing/
+---
+
 # Contributing to Security Walkthroughs
 
 Thank you for your interest in contributing to this security walkthroughs repository!

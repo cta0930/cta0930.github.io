@@ -1,3 +1,9 @@
+---
+layout: page
+title: Quick Start
+permalink: /quickstart/
+---
+
 # Quick Start Guide
 
 This guide will help you quickly understand how to use and contribute to this GitHub Pages site.

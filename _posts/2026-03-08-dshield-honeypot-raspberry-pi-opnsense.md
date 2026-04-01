@@ -2,7 +2,7 @@
 layout: post
 title: "DShield Honeypot on Raspberry Pi with OPNsense: Full Isolation Setup"
 date: 2026-03-08
-categories: [SecurityProjects]
+categories: [HomeLab]
 tags: [homelab, dshield, honeypot, raspberry-pi, opnsense, firewall, vlan, internet-storm-center, network-security, isolation]
 ---
 
@@ -12,9 +12,9 @@ tags: [homelab, dshield, honeypot, raspberry-pi, opnsense, firewall, vlan, inter
 
 This walkthrough covers the end-to-end setup of a **DShield Honeypot sensor** — a project from the [SANS Internet Storm Center (ISC)](https://isc.sans.edu/){:target="_blank"} — running on a **Raspberry Pi** and connected to an **OPNsense** firewall. The honeypot is intentionally exposed to the public internet to attract and log real-world attack traffic, which is then contributed back to the ISC global threat-intelligence feed.
 
-Because the sensor deliberately invites hostile connections, **strict network isolation is non-negotiable.** This guide creates a dedicated `HONEYPOT` VLAN (VLAN 60) with firewall rules that:
+Because the sensor deliberately invites hostile connections, **strict network isolation is non-negotiable.** This guide creates a dedicated `HONEYPOT` VLAN or interface directly on an OPNSense firewall with strict rules that:
 
-- Allow inbound internet traffic to reach the Pi on specific honeypot ports.
+- Allow inbound internet traffic to reach the Pi on specific honeypot ports (1222, 8080, and 8443).
 - Prevent the Pi from initiating any connections to internal VLANs.
 - Allow only the outbound reporting traffic the sensor needs (HTTPS to ISC and DNS).
 
@@ -101,38 +101,38 @@ Log in to the OPNsense web GUI (`https://10.0.10.1`).
 Navigate to **Interfaces → Other Types → VLAN** and click **+ Add**:
 
 | Field            | Value          |
-|-----------------|----------------|
-| Parent interface | `igb1` (your LAN/trunk port) |
-| VLAN tag         | `60`           |
-| Description      | `HONEYPOT`     |
+|------------------|----------------|
+| Parent interface | `igc0` (your LAN/trunk port) |
+| DShield interface| `igc3` (in my case)          |
+| Description      | `HONEYPOT` (keep it simple)  |
 
 Click **Save**.
 
 ### 3.2 – Assign and Enable the Interface
 
 1. Go to **Interfaces → Assignments**.
-2. In the **New interface** dropdown, select the newly created `vlan0.60` device and click **+ Add**.
+2. In the **New interface** dropdown, select the newly created `vlan0.xx or igcx` device and click **+ Add**.
 3. Click the new interface (e.g. `OPT5`) to edit it:
    - **Enable interface:** ✓
-   - **Description:** `HONEYPOT`
+   - **Description:** `HONEYPOT or DShield`
    - **IPv4 Configuration Type:** Static IPv4
-   - **IPv4 Address:** `10.0.60.1 / 24`
+   - **IPv4 Address:** `10.0.250.1 / 24` (can be whatever works best for you)
 4. Click **Save**, then **Apply Changes**.
 
-### 3.3 – Configure DHCP for VLAN 60
+### 3.3 – Configure DHCP for VLAN xx or igcx
 
 Navigate to **Services → DHCPv4 → HONEYPOT**:
 
-| Field       | Value            |
-|-------------|------------------|
-| Enable      | ✓                |
-| Range start | `10.0.60.100`    |
-| Range end   | `10.0.60.100`    |
-| DNS servers | `9.9.9.9`, `1.1.1.1` |
+| Field       | Value               |
+|-------------|---------------------|
+| Enable      | ✓                   |
+| Range start | `10.0.250.100`      |
+| Range end   | `10.0.250.150`      |
+| DNS servers | `9.9.9.9`, `1.1.1.1`|
 
-> **Tip:** Narrowing the DHCP range to a single address (`10.0.60.100`) ensures the Pi always receives the same IP without needing a static assignment, and prevents any unexpected additional device from obtaining an address in this VLAN.
+> **Tip:** Narrowing the DHCP range to a single address (`10.0.250.100`) ensures the Pi always receives the same IP without needing a static assignment, and prevents any unexpected additional device from obtaining an address in this VLAN. Or just assign a static IP to keep things simple. I did this from the PI via SSH (i.e. 10.0.250.100)
 
-Alternatively, add a **Static Mapping** under **Services → DHCPv4 → HONEYPOT → Static Mappings** that ties the Pi's MAC address to `10.0.60.100`.
+Alternatively, add a **Static Mapping** under **Services → DHCPv4 → HONEYPOT → Static Mappings** that ties the Pi's MAC address to `10.0.250.100`.
 
 Click **Save**.
 
@@ -155,7 +155,7 @@ These rules control traffic that originates *from* the Pi.
 | 3 | Block  | *        | HONEYPOT net     | 10.0.30.0/24    | *           | Block access to LAB VLAN                      |
 | 4 | Block  | *        | HONEYPOT net     | 10.0.40.0/24    | *           | Block access to IOT VLAN                      |
 | 5 | Block  | *        | HONEYPOT net     | 10.0.50.0/24    | *           | Block access to GUEST VLAN                    |
-| 6 | Block  | *        | HONEYPOT net     | 10.0.60.1       | *           | Block access to HONEYPOT gateway itself       |
+| 6 | Block  | *        | HONEYPOT net     | 10.0.250.100    | *           | Block access to HONEYPOT gateway itself       |
 | 7 | Pass   | TCP      | HONEYPOT net     | any             | 443 (HTTPS) | Allow ISC log submission (dshield.org API)    |
 | 8 | Pass   | UDP      | HONEYPOT net     | any             | 53 (DNS)    | Allow DNS resolution                          |
 | 9 | Pass   | TCP      | HONEYPOT net     | any             | 80 (HTTP)   | Allow OS package updates (apt)                |
@@ -191,22 +191,22 @@ This single alias-based rule is easier to maintain and ensures future VLANs you 
 
 ## Step 5 – NAT Port Forwarding (WAN → Honeypot Pi)
 
-To receive real internet attack traffic, you need to forward the honeypot ports from your WAN IP to the Pi's private IP (`10.0.60.100`).
+To receive real internet attack traffic, you need to forward the honeypot ports from your WAN IP to the Pi's private IP (`10.0.250.100`).
 
 Navigate to **Firewall → NAT → Port Forward** and click **+ Add** for each rule:
 
 ### 5.1 – Forward SSH (Port 22)
 
 | Field                | Value                          |
-|---------------------|--------------------------------|
+|---------------------|---------------------------------|
 | Interface            | WAN                            |
 | Protocol             | TCP                            |
 | Destination          | WAN address                    |
-| Destination port range | 22 to 22                    |
-| Redirect target IP   | `10.0.60.100`                  |
-| Redirect target port | `22`                           |
+| Destination port range | 22 to 22                     |
+| Redirect target IP   | `10.0.250.100`                  |
+| Redirect target port | `1222`                         |
 | Description          | DShield SSH honeypot           |
-| Filter rule association | *Create new associated rule* |
+| Filter rule association | *Create new associated rule*|
 
 ### 5.2 – Forward HTTP (Port 80)
 
@@ -216,7 +216,7 @@ Navigate to **Firewall → NAT → Port Forward** and click **+ Add** for each r
 | Protocol             | TCP                            |
 | Destination          | WAN address                    |
 | Destination port range | 80 to 80                    |
-| Redirect target IP   | `10.0.60.100`                  |
+| Redirect target IP   | `10.0.250.100`                  |
 | Redirect target port | `8080` |
 | Description          | DShield HTTP honeypot          |
 | Filter rule association | *Create new associated rule* |
@@ -226,15 +226,15 @@ Navigate to **Firewall → NAT → Port Forward** and click **+ Add** for each r
 ### 5.3 – Forward HTTPS (Port 443)
 
 | Field                | Value                          |
-|---------------------|--------------------------------|
+|---------------------|---------------------------------|
 | Interface            | WAN                            |
 | Protocol             | TCP                            |
 | Destination          | WAN address                    |
-| Destination port range | 443 to 443                  |
-| Redirect target IP   | `10.0.60.100`                  |
-| Redirect target port | `8443` |
+| Destination port range | 443 to 443                   |
+| Redirect target IP   | `10.0.250.100`                 |
+| Redirect target port | `8443`                         |
 | Description          | DShield HTTPS honeypot         |
-| Filter rule association | *Create new associated rule* |
+| Filter rule association | *Create new associated rule*|
 
 Click **Save** and **Apply Changes** after each entry.
 
@@ -242,34 +242,34 @@ Click **Save** and **Apply Changes** after each entry.
 
 ---
 
-## Step 6 – Configure the Netgear Switch Port for VLAN 60
+## Step 6 – Configure the Netgear Switch Port for VLAN xx if that is the route you decided to take
 
-If you are using the Netgear GS308E/GS316E switch from the home lab setup, assign an access port to VLAN 60 for the Pi.
+If you are using the Netgear GS308E/GS316E switch from the home lab setup, assign an access port to VLAN xx for the Pi.
 
-### 6.1 – Add VLAN 60 to the Switch
+### 6.1 – Add VLAN xx to the Switch
 
-In the Netgear web UI at `http://10.0.10.2`:
+In the Netgear web UI at `http://10.0.99.50`: (i.e. or whatever IP you use to access the switch)
 
 1. Go to **VLAN → 802.1Q → Advanced → VLAN Configuration**.
-2. Add VLAN ID `60` with name `HONEYPOT`.
+2. Add VLAN ID `xx` with name `HONEYPOT`.
 
-### 6.2 – Assign the Pi's Switch Port to VLAN 60
+### 6.2 – Assign the Pi's Switch Port to VLAN xx
 
 Navigate to **VLAN → 802.1Q → Advanced → VLAN Membership**.
 
-Choose an unused port (e.g. Port 8 if it was formerly GUEST) and configure:
+Choose an unused port (e.g. Port 7 if it was formerly unused) and configure:
 
 | VLAN ID | Port 1 (Trunk) | Port 8 (Pi port) |
 |---------|---------------|-----------------|
-| 60      | Tagged        | Untagged        |
+| xx      | Tagged        | Untagged        |
 
 ### 6.3 – Set PVID for the Pi's Port
 
 Navigate to **VLAN → 802.1Q → Advanced → Port PVID**.
 
-Set Port 8 PVID to `60`.
+Set Port 7 PVID to `xx`.
 
-Connect the Raspberry Pi's Ethernet cable to Port 8.
+Connect the Raspberry Pi's Ethernet cable to Port 7.
 
 ---
 
@@ -278,16 +278,16 @@ Connect the Raspberry Pi's Ethernet cable to Port 8.
 1. Insert the flashed microSD card into the Pi and power it on with the Ethernet cable connected to the HONEYPOT switch port.
 2. Wait ~60 seconds for the Pi to complete its first boot.
 3. From a workstation on the **MANAGEMENT** or **TRUSTED** VLAN, check the OPNsense DHCP leases to find the Pi's IP:
-   - **Services → DHCPv4 → Leases** — look for the hostname `dshield-sensor` at `10.0.60.100`.
+   - **Services → DHCPv4 → Leases** — look for the hostname `dshield-sensor` at `10.0.250.100`.
 4. SSH into the Pi from your management workstation:
 
 ```bash
-ssh <your-username>@10.0.60.100
+ssh <your-username>@10.0.250.100
 ```
 
-> **Can you reach VLAN 60 from TRUSTED?** By design, the firewall rules from Step 4 block the Pi from reaching internal VLANs — but they do **not** block inbound SSH *from* internal VLANs *to* the Pi, since those rules live on the `HONEYPOT` interface (controlling traffic originating from the Pi). Traffic from TRUSTED → HONEYPOT is governed by the TRUSTED interface rules, which (from the previous home lab setup) allow all outbound traffic. You can therefore still manage the Pi from your trusted workstation.
+> **Can you reach VLAN xx from TRUSTED?** By design, the firewall rules from Step 4 block the Pi from reaching internal VLANs — but they do **not** block inbound SSH *from* internal VLANs *to* the Pi, since those rules live on the `HONEYPOT` interface (controlling traffic originating from the Pi). Traffic from TRUSTED → HONEYPOT is governed by the TRUSTED interface rules, which (from the previous home lab setup) allow all outbound traffic. You can therefore still manage the Pi from your trusted workstation.
 >
-> If you want to further harden management access, add a dedicated rule on the TRUSTED interface: Block TCP from TRUSTED net to `10.0.60.100` port 22, **except** for your specific management workstation IP.
+> If you want to further harden management access, add a dedicated rule on the TRUSTED interface: Block TCP from TRUSTED net to `10.0.250.100` port 22, **except** for your specific management workstation IP.
 
 ---
 
@@ -344,7 +344,7 @@ sudo ufw allow from 10.0.10.0/24 to any port 22 proto tcp
 sudo ufw allow from 10.0.20.0/24 to any port 22 proto tcp
 
 # Allow the honeypot ports from anywhere (the OPNsense NAT forwards these)
-sudo ufw allow 22/tcp comment 'SSH honeypot'
+sudo ufw allow 1222/tcp comment 'SSH honeypot'
 sudo ufw allow 8080/tcp comment 'HTTP honeypot'
 sudo ufw allow 8443/tcp comment 'HTTPS honeypot'
 
@@ -503,7 +503,7 @@ LISTEN  0  128  0.0.0.0:12222  0.0.0.0:*  users:(("sshd",pid=...,fd=...))
 From a machine on the TRUSTED VLAN, simulate what an attacker sees on port 22:
 
 ```bash
-ssh -p 22 root@10.0.60.100
+ssh -p 22 root@10.0.250.100
 ```
 
 Cowrie will accept the connection and present a fake shell. Type a few commands (`ls`, `whoami`, `id`) and then exit. These interactions are logged.
@@ -519,7 +519,7 @@ You should see JSON-formatted log entries for the test session, including the co
 ### 10.5 – Test HTTP Honeypot
 
 ```bash
-curl -v http://10.0.60.100:8080/
+curl -v http://10.0.250.100:8080/
 ```
 
 You should receive an HTTP response (Cowrie/nginx-based web honeypot page). Any URL paths requested are logged.
@@ -550,7 +550,7 @@ You can also verify submissions on the ISC website:
 
 ### 11.1 – Confirm the Pi Cannot Reach Internal VLANs
 
-From the Pi (connected to VLAN 60), attempt to reach resources in other VLANs. All should fail:
+From the Pi (connected to VLAN xx), attempt to reach resources in other VLANs. All should fail:
 
 ```bash
 # Should fail — MANAGEMENT VLAN
@@ -604,7 +604,7 @@ In OPNsense, navigate to **Firewall → Rules → HONEYPOT**. Hover over each ru
 System → Log Files → Firewall
 ```
 
-Filter by source IP `10.0.60.100` to see all blocked outbound traffic from the Pi. You should see blocked entries corresponding to the ping tests above.
+Filter by source IP `10.0.250.100` to see all blocked outbound traffic from the Pi. You should see blocked entries corresponding to the ping tests above.
 
 ---
 
@@ -671,7 +671,7 @@ Log in to [https://isc.sans.edu/myaccount.html](https://isc.sans.edu/myaccount.h
 
 - **Network isolation is the foundation:** By placing the DShield Pi in a dedicated `HONEYPOT` VLAN with strict OPNsense firewall rules, you ensure that a compromised sensor cannot pivot into your internal networks.
 - **Default-deny outbound:** The HONEYPOT interface rules block all outbound traffic except the minimum needed (HTTPS for ISC reporting, DNS, and HTTP for OS updates). This limits blast radius if the Pi itself is compromised.
-- **Port forwarding targets the VLAN IP:** OPNsense NAT forwards WAN ports 22, 80, and 443 directly to `10.0.60.100`, keeping the real management SSH port (`12222`) invisible to the internet.
+- **Port forwarding targets the VLAN IP:** OPNsense NAT forwards WAN ports 22, 80, and 443 directly to `10.0.250.100`, keeping the real management SSH port (`12222`) invisible to the internet.
 - **The RFC 1918 alias simplifies rule maintenance:** A single alias-based block rule covers all internal subnets, future-proofing the isolation as you add VLANs.
 - **Contribute and learn:** Every connection logged by your DShield sensor contributes to the ISC global threat-intelligence feed. Regularly reviewing the ISC dashboard turns your honeypot from a passive sensor into an active learning tool.
 

@@ -1,7 +1,4 @@
-remote_theme: cotes2020/jekyll-theme-chirpy
-
-plugins:
-  - jekyll-remote-theme
+theme: jekyll-theme-chirpy
 
 lang: en
 timezone: America/New_York

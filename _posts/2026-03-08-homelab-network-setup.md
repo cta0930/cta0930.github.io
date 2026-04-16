@@ -128,48 +128,49 @@ Most ISP-provided modem-routers support bridge mode or IP passthrough. You do no
 ### Visual Topology Diagram
 
 ```mermaid
-flowchart TD
-  INET[Internet]
-  ISP[ISP Router/Modem\nBridge Mode\nNAT FW Off]
-  OPNS[OPNsense on Protectli VP2420]
-  WAN[(igc0 WAN)]
-  TRUNK[(igc1 Trunk)]
-  SEC[(igc2 Security Stack\n10.10.100.0/24)]
-  HONE[(igc3 Honeypot\n10.10.110.0/24)]
+graph TD
 
-  SW[Netgear Managed Switch]
+INET[Internet]
+ISP[ISP Router/Modem\nBridge Mode\nNAT FW Off]
+OPNS[OPNsense on Protectli VP2420]
+WAN[(igc0 WAN)]
+TRUNK[(igc1 Trunk)]
+SEC[(igc2 Security Stack\n10.10.100.0/24)]
+HONE[(igc3 Honeypot\n10.10.110.0/24)]
 
-  V10[VLAN 10\nCYBER_LAB\n10.10.10.0/24]
-  V20[VLAN 20\nREMOTE_WORK\n10.10.20.0/24]
-  V30[VLAN 30\nTRUSTED_WIRELESS\n10.10.30.0/24]
-  V40[VLAN 40\nGUEST_IOT\n10.10.40.0/24]
-  V50[VLAN 50\nPRINTER_UTILITY\n10.10.50.0/24]
-  V99[VLAN 99\nMANAGEMENT\n10.10.99.0/24]
+SW[Netgear Managed Switch]
 
-  ADG[AdGuard\nDNS 53]
-  WAZ[Wazuh\nSIEM]
-  OCT[OpenCTI\nTI Platform]
+V10[VLAN 10\nCYBER_LAB\n10.10.10.0/24]
+V20[VLAN 20\nREMOTE_WORK\n10.10.20.0/24]
+V30[VLAN 30\nTRUSTED_WIRELESS\n10.10.30.0/24]
+V40[VLAN 40\nGUEST_IOT\n10.10.40.0/24]
+V50[VLAN 50\nPRINTER_UTILITY\n10.10.50.0/24]
+V99[VLAN 99\nMANAGEMENT\n10.10.99.0/24]
 
-  WG[WireGuard Overlay\n10.10.200.0/24]
-  REMOTE[Remote Clients]
+ADG[AdGuard\nDNS 53]
+WAZ[Wazuh\nSIEM]
+OCT[OpenCTI\nTI Platform]
 
-  INET --> ISP --> WAN --> OPNS
-  OPNS --> TRUNK --> SW
-  SW --> V10
-  SW --> V20
-  SW --> V30
-  SW --> V40
-  SW --> V50
-  SW --> V99
+WG[WireGuard Overlay\n10.10.200.0/24]
+REMOTE[Remote Clients]
 
-  OPNS --> SEC
-  OPNS --> HONE
+INET --> ISP --> WAN --> OPNS
+OPNS --> TRUNK --> SW
+SW --> V10
+SW --> V20
+SW --> V30
+SW --> V40
+SW --> V50
+SW --> V99
 
-  SEC --> ADG
-  SEC --> WAZ
-  SEC --> OCT
+OPNS --> SEC
+OPNS --> HONE
 
-  REMOTE --> WG --> OPNS
+SEC --> ADG
+SEC --> WAZ
+SEC --> OCT
+
+REMOTE --> WG --> OPNS
 ```
 
 ---

@@ -1,680 +1,369 @@
 ---
 layout: post
-title: "DShield Honeypot on Raspberry Pi with OPNsense: Full Isolation Setup"
+title: "DShield Honeypot Add-On for the OPNsense Homelab"
 date: 2026-03-08
-categories: [HomeLab]
-tags: [homelab, dshield, honeypot, raspberry-pi, opnsense, firewall, vlan, internet-storm-center, network-security, isolation]
+categories: [HomeLab, Security]
+tags: [homelab, dshield, honeypot, raspberry-pi, opnsense, firewall, nat, cloud, internet-storm-center, network-security]
 ---
 
-# DShield Honeypot on Raspberry Pi with OPNsense: Full Isolation Setup
+# DShield Honeypot Add-On for the OPNsense Homelab
 
 ## Overview
 
-This walkthrough covers the end-to-end setup of a **DShield Honeypot sensor** — a project from the [SANS Internet Storm Center (ISC)](https://isc.sans.edu/){:target="_blank"} — running on a **Raspberry Pi** and connected to an **OPNsense** firewall. The honeypot is intentionally exposed to the public internet to attract and log real-world attack traffic, which is then contributed back to the ISC global threat-intelligence feed.
+This post is an add-on to the base OPNsense homelab walkthrough and shows how to integrate a DShield honeypot safely.
 
-Because the sensor deliberately invites hostile connections, **strict network isolation is non-negotiable.** This guide creates a dedicated `HONEYPOT` VLAN or interface directly on an OPNSense firewall with strict rules that:
+Base guide this extends:
+- [/posts/homelab-network-setup](/posts/homelab-network-setup)
 
-- Allow inbound internet traffic to reach the Pi on specific honeypot ports (1222, 8080, and 8443).
-- Prevent the Pi from initiating any connections to internal VLANs.
-- Allow only the outbound reporting traffic the sensor needs (HTTPS to ISC and DNS).
+This write-up now supports multiple ways to run DShield:
 
-**What DShield logs:**
+1. Home lab behind OPNsense firewall (recommended for this series)
+2. Cloud VPS with public IP
+3. Standalone host on another network/device (Pi, mini PC, VM, or old laptop)
 
-| Service     | Default Port | What it captures                            |
-|-------------|-------------|----------------------------------------------|
-| SSH Honeypot (Cowrie-based) | 22 | Login attempts, brute-force, command history |
-| HTTP Honeypot | 80 | Web scans, exploit payloads, URL enumeration |
-| HTTPS Honeypot | 443 | TLS-wrapped web attack traffic              |
+The core security goal is always the same: isolate the sensor, expose only honeypot services, and keep real admin access separate.
 
-Logs are automatically submitted to the Internet Storm Center, feeding the DShield database used by security researchers worldwide.
+## Deployment Model Matrix (Choose First)
 
-**Updated Network Design** (building on the [Home Lab Network Setup post](/posts/homelab-network-setup)):
+| Model | Where It Runs | Internet Exposure Method | NAT Port Forward Needed? |
+|---|---|---|---|
+| Home lab + OPNsense | Raspberry Pi or other host on isolated honeypot segment | OPNsense WAN -> internal sensor IP | Yes, if ISP gives private LAN behind firewall |
+| Cloud VPS | Cloud VM (AWS/Lightsail/DigitalOcean/Linode/etc.) | Public VM IP + cloud security group rules | No OPNsense NAT (not in path) |
+| Standalone (no dedicated firewall) | Raspberry Pi/mini PC/VM on existing network | Router/NAT device or directly public host | Depends on upstream router design |
 
-| VLAN ID | Name        | Subnet           | Purpose                                        |
-|---------|-------------|------------------|------------------------------------------------|
-| 10      | MANAGEMENT  | 10.0.10.0/24     | Firewall management, switch OOB                |
-| 20      | TRUSTED     | 10.0.20.0/24     | Main workstations, daily-driver hosts          |
-| 30      | LAB         | 10.0.30.0/24     | VMs, attack machines, test hosts               |
-| 40      | IOT         | 10.0.40.0/24     | Smart devices, cameras, printers               |
-| 50      | GUEST       | 10.0.50.0/24     | Guest Wi-Fi, isolated internet-only            |
-| **60**  | **HONEYPOT**| **10.0.60.0/24** | **DShield Pi – internet-facing, fully isolated** |
+## Quick Start Paths
 
----
+Use the path that matches your environment and skip the others.
 
-## Hardware & Prerequisites
+### Path A: Home Lab with OPNsense Firewall
 
-### Hardware
+1. Complete Step 1 and Step 2.
+2. Use Step 3 (OPNsense honeypot segment placement).
+3. Complete Step 4 and Step 5 (interface + isolation policy).
+4. Use Step 6 Path A (OPNsense NAT forwards).
+5. Complete Step 7, Step 8, and Step 9.
 
-- **Raspberry Pi 4 Model B** (2 GB RAM minimum; 4 GB recommended) or **Raspberry Pi 5**  
-  *A Pi 3B+ also works but offers less headroom for concurrent log processing.*
-- MicroSD card (≥ 16 GB, Class 10 / A1 rated)
-- USB-C power supply (5V/3A for Pi 4, 5V/5A for Pi 5)
-- Ethernet cable (connect directly to a switch port assigned to VLAN 60)
-- Existing OPNsense firewall with a free switch port (see the [Home Lab Network Setup](/posts/homelab-network-setup) post)
+### Path B: Cloud VPS with Public IP
 
-### Software / Downloads
+1. Complete Step 1 and Step 2 (Cloud VPS option).
+2. Skip Step 4 (no OPNsense interface in path).
+3. Use Step 5 cloud/standalone policy model.
+4. Use Step 6 Path B (cloud security group/firewall; no OPNsense NAT).
+5. Complete Step 7, Step 8, and Step 9.
 
-- [Raspberry Pi OS Lite (64-bit)](https://www.raspberrypi.com/software/operating-systems/){:target="_blank"} – headless, minimal image
-- [Raspberry Pi Imager](https://www.raspberrypi.com/software/){:target="_blank"} – for flashing the OS
-- [DShield Raspberry Pi Sensor](https://github.com/DShield-ISC/dshield){:target="_blank"} – ISC-maintained installer
-- An active [SANS ISC account](https://isc.sans.edu/myaccount.html){:target="_blank"} (free registration) to obtain your API key
+### Path C: Standalone Host (No OPNsense in Path)
 
----
+1. Complete Step 1 and Step 2.
+2. Use Step 3 cloud/standalone placement guidance.
+3. Skip Step 4 unless you still use OPNsense internally.
+4. Use Step 5 equivalent host/router isolation controls.
+5. Use Step 6 Path C (router NAT only if required).
+6. Complete Step 7, Step 8, and Step 9.
 
-## Step 1 – Register with the Internet Storm Center
+Important distinction:
 
-Before installing the sensor you need an ISC API key so your Pi can authenticate its submissions.
+- If OPNsense is in front of the sensor, use OPNsense NAT port forwarding (optional by design, required for internet-facing honeypot traffic in that path).
+- If running in cloud with public IP, do not configure OPNsense NAT; expose only required ports in cloud firewall/security groups.
 
-1. Browse to [https://isc.sans.edu/myaccount.html](https://isc.sans.edu/myaccount.html){:target="_blank"}.
-2. Create a free account or log in.
-3. Navigate to **My Account → API Key** and note your **API key** and **User ID**.
+## DShield Port Model
 
-Keep these credentials handy — the DShield installer will ask for them.
-
----
-
-## Step 2 – Flash Raspberry Pi OS Lite
-
-1. Download and install **Raspberry Pi Imager**.
-2. Insert the microSD card into your workstation.
-3. Open Raspberry Pi Imager:
-   - **Device:** Raspberry Pi 4 (or 5)
-   - **Operating System:** *Raspberry Pi OS Lite (64-bit)*
-   - **Storage:** your microSD card
-4. Click the **gear icon** (⚙️) to open Advanced Options before flashing:
-   - **Enable SSH:** ✓ (use password authentication or, preferably, an SSH public key)
-   - **Set username and password:** choose a non-default username (avoid `pi`)
-   - **Set hostname:** e.g. `dshield-sensor`
-   - **Configure wireless LAN:** leave blank — the Pi will use wired Ethernet only
-5. Click **Save**, then **Write**. Confirm the overwrite prompt.
-
-> **Security note:** Do **not** use the default `pi` / `raspberry` credentials. The sensor will be internet-facing; these defaults are among the very first credentials attackers try.
+| Service | External Port | Internal Sensor Port |
+|---|---|---|
+| SSH honeypot | 22 | 1222 |
+| HTTP honeypot | 80 | 8080 |
+| HTTPS honeypot | 443 | 8443 |
+| Real admin SSH | never publicly exposed | 12222 (example) |
 
 ---
 
-## Step 3 – Add VLAN 60 (HONEYPOT) to OPNsense
+## Step 1: Register for ISC and Get API Credentials
 
-Log in to the OPNsense web GUI (`https://10.0.10.1`).
+1. Go to https://isc.sans.edu/myaccount.html
+2. Create an account or sign in.
+3. Record:
+   - User ID
+   - API key
 
-### 3.1 – Create the VLAN Sub-Interface
-
-Navigate to **Interfaces → Other Types → VLAN** and click **+ Add**:
-
-| Field            | Value          |
-|------------------|----------------|
-| Parent interface | `igc0` (your LAN/trunk port) |
-| DShield interface| `igc3` (in my case)          |
-| Description      | `HONEYPOT` (keep it simple)  |
-
-Click **Save**.
-
-### 3.2 – Assign and Enable the Interface
-
-1. Go to **Interfaces → Assignments**.
-2. In the **New interface** dropdown, select the newly created `vlan0.xx or igcx` device and click **+ Add**.
-3. Click the new interface (e.g. `OPT5`) to edit it:
-   - **Enable interface:** ✓
-   - **Description:** `HONEYPOT or DShield`
-   - **IPv4 Configuration Type:** Static IPv4
-   - **IPv4 Address:** `10.0.250.1 / 24` (can be whatever works best for you)
-4. Click **Save**, then **Apply Changes**.
-
-### 3.3 – Configure DHCP for VLAN xx or igcx
-
-Navigate to **Services → DHCPv4 → HONEYPOT**:
-
-| Field       | Value               |
-|-------------|---------------------|
-| Enable      | ✓                   |
-| Range start | `10.0.250.100`      |
-| Range end   | `10.0.250.150`      |
-| DNS servers | `9.9.9.9`, `1.1.1.1`|
-
-> **Tip:** Narrowing the DHCP range to a single address (`10.0.250.100`) ensures the Pi always receives the same IP without needing a static assignment, and prevents any unexpected additional device from obtaining an address in this VLAN. Or just assign a static IP to keep things simple. I did this from the PI via SSH (i.e. 10.0.250.100)
-
-Alternatively, add a **Static Mapping** under **Services → DHCPv4 → HONEYPOT → Static Mappings** that ties the Pi's MAC address to `10.0.250.100`.
-
-Click **Save**.
+You need these during installer setup.
 
 ---
 
-## Step 4 – Firewall Rules for Full Isolation
+## Step 2: Choose Sensor Host Platform
 
-This is the most critical part of the setup. The rules below implement a **default-deny** posture with explicit allow rules for only the traffic the honeypot legitimately needs.
+### Option A: Raspberry Pi (Most Common)
 
-Navigate to **Firewall → Rules**.
+- Pi 4 or Pi 5
+- 16 GB or larger microSD
+- Wired Ethernet preferred
 
-### 4.1 – HONEYPOT Interface Rules (outbound from the Pi)
+Flash Raspberry Pi OS Lite (64-bit) and enable SSH in imager advanced options.
 
-These rules control traffic that originates *from* the Pi.
+### Option B: Cloud VPS
 
-| # | Action | Protocol | Source           | Destination     | Port / Type | Description                                   |
-|---|--------|----------|------------------|-----------------|-------------|-----------------------------------------------|
-| 1 | Block  | *        | HONEYPOT net     | 10.0.10.0/24    | *           | Block access to MANAGEMENT VLAN               |
-| 2 | Block  | *        | HONEYPOT net     | 10.0.20.0/24    | *           | Block access to TRUSTED VLAN                  |
-| 3 | Block  | *        | HONEYPOT net     | 10.0.30.0/24    | *           | Block access to LAB VLAN                      |
-| 4 | Block  | *        | HONEYPOT net     | 10.0.40.0/24    | *           | Block access to IOT VLAN                      |
-| 5 | Block  | *        | HONEYPOT net     | 10.0.50.0/24    | *           | Block access to GUEST VLAN                    |
-| 6 | Block  | *        | HONEYPOT net     | 10.0.250.100    | *           | Block access to HONEYPOT gateway itself       |
-| 7 | Pass   | TCP      | HONEYPOT net     | any             | 443 (HTTPS) | Allow ISC log submission (dshield.org API)    |
-| 8 | Pass   | UDP      | HONEYPOT net     | any             | 53 (DNS)    | Allow DNS resolution                          |
-| 9 | Pass   | TCP      | HONEYPOT net     | any             | 80 (HTTP)   | Allow OS package updates (apt)                |
-| 10| Block  | *        | HONEYPOT net     | any             | *           | Default deny — block everything else          |
+- Ubuntu/Debian VM with public IP
+- 1 vCPU / 1-2 GB RAM minimum
+- Restrict inbound at cloud firewall/security group level
 
-> **Why allow port 80 (HTTP) outbound?** The Pi needs to reach Debian/Raspberry Pi OS package repositories over HTTP for `apt` updates. If you prefer, you can lock this down further by allowing only specific APT mirror IPs. After the sensor is fully configured and updated, you may optionally tighten this rule.
+### Option C: Other Devices
 
-> **Rule order matters:** OPNsense evaluates rules **top-to-bottom, first match wins**. Always place Block rules above the broad Pass rules.
+You can also run on:
 
-### 4.2 – WAN Interface Rules (inbound from the internet)
+- Intel NUC or mini PC
+- Existing Linux VM in Proxmox/ESXi/Hyper-V
+- Old laptop/desktop running Linux
 
-Navigate to **Firewall → Rules → WAN**. By default OPNsense blocks all unsolicited inbound traffic on WAN, which is correct. You only need to add rules if you are exposing the honeypot ports directly via port forwarding (configured in Step 5). OPNsense automatically creates associated WAN rules when you add NAT port-forward entries — you do **not** need to manually add WAN rules here; they are created in Step 5.
+As long as Linux dependencies are supported and network exposure is controlled, DShield runs fine.
 
-### 4.3 – Anti-Spoofing Alias (recommended)
-
-Create a firewall alias that represents all internal RFC 1918 space to make the block rules above easier to maintain:
-
-1. Navigate to **Firewall → Aliases** → **+ Add**:
-   - **Name:** `RFC1918_PRIVATE`
-   - **Type:** Network
-   - **Networks:** `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
-2. Save.
-
-You can now replace the individual per-VLAN block rules (rules 1–5 above) with a single rule:
-
-| # | Action | Protocol | Source       | Destination        | Port | Description                         |
-|---|--------|----------|--------------|--------------------|------|-------------------------------------|
-| 1 | Block  | *        | HONEYPOT net | RFC1918_PRIVATE    | *    | Block all access to internal networks |
-
-This single alias-based rule is easier to maintain and ensures future VLANs you add are automatically blocked from the honeypot.
-
----
-
-## Step 5 – NAT Port Forwarding (WAN → Honeypot Pi)
-
-To receive real internet attack traffic, you need to forward the honeypot ports from your WAN IP to the Pi's private IP (`10.0.250.100`).
-
-Navigate to **Firewall → NAT → Port Forward** and click **+ Add** for each rule:
-
-### 5.1 – Forward SSH (Port 22)
-
-| Field                | Value                          |
-|---------------------|---------------------------------|
-| Interface            | WAN                            |
-| Protocol             | TCP                            |
-| Destination          | WAN address                    |
-| Destination port range | 22 to 22                     |
-| Redirect target IP   | `10.0.250.100`                  |
-| Redirect target port | `1222`                         |
-| Description          | DShield SSH honeypot           |
-| Filter rule association | *Create new associated rule*|
-
-### 5.2 – Forward HTTP (Port 80)
-
-| Field                | Value                          |
-|---------------------|--------------------------------|
-| Interface            | WAN                            |
-| Protocol             | TCP                            |
-| Destination          | WAN address                    |
-| Destination port range | 80 to 80                    |
-| Redirect target IP   | `10.0.250.100`                  |
-| Redirect target port | `8080` |
-| Description          | DShield HTTP honeypot          |
-| Filter rule association | *Create new associated rule* |
-
-> **Port translation note:** Internet clients connect to your WAN IP on port **80**; OPNsense NAT translates and forwards those packets to the Pi on port **8080**, where the DShield web honeypot process listens (as configured in the installer prompt in Step 9.2). External clients never see the internal port.
-
-### 5.3 – Forward HTTPS (Port 443)
-
-| Field                | Value                          |
-|---------------------|---------------------------------|
-| Interface            | WAN                            |
-| Protocol             | TCP                            |
-| Destination          | WAN address                    |
-| Destination port range | 443 to 443                   |
-| Redirect target IP   | `10.0.250.100`                 |
-| Redirect target port | `8443`                         |
-| Description          | DShield HTTPS honeypot         |
-| Filter rule association | *Create new associated rule*|
-
-Click **Save** and **Apply Changes** after each entry.
-
-> **Important:** After applying, OPNsense automatically creates matching **WAN pass rules** for each forwarded port. Verify them under **Firewall → Rules → WAN** — you should see three auto-generated rules allowing TCP/22, TCP/80, and TCP/443 inbound from any source to the WAN address.
-
----
-
-## Step 6 – Configure the Netgear Switch Port for VLAN xx if that is the route you decided to take
-
-If you are using the Netgear GS308E/GS316E switch from the home lab setup, assign an access port to VLAN xx for the Pi.
-
-### 6.1 – Add VLAN xx to the Switch
-
-In the Netgear web UI at `http://10.0.99.50`: (i.e. or whatever IP you use to access the switch)
-
-1. Go to **VLAN → 802.1Q → Advanced → VLAN Configuration**.
-2. Add VLAN ID `xx` with name `HONEYPOT`.
-
-### 6.2 – Assign the Pi's Switch Port to VLAN xx
-
-Navigate to **VLAN → 802.1Q → Advanced → VLAN Membership**.
-
-Choose an unused port (e.g. Port 7 if it was formerly unused) and configure:
-
-| VLAN ID | Port 1 (Trunk) | Port 8 (Pi port) |
-|---------|---------------|-----------------|
-| xx      | Tagged        | Untagged        |
-
-### 6.3 – Set PVID for the Pi's Port
-
-Navigate to **VLAN → 802.1Q → Advanced → Port PVID**.
-
-Set Port 7 PVID to `xx`.
-
-Connect the Raspberry Pi's Ethernet cable to Port 7.
-
----
-
-## Step 7 – First Boot and SSH Access to the Pi
-
-1. Insert the flashed microSD card into the Pi and power it on with the Ethernet cable connected to the HONEYPOT switch port.
-2. Wait ~60 seconds for the Pi to complete its first boot.
-3. From a workstation on the **MANAGEMENT** or **TRUSTED** VLAN, check the OPNsense DHCP leases to find the Pi's IP:
-   - **Services → DHCPv4 → Leases** — look for the hostname `dshield-sensor` at `10.0.250.100`.
-4. SSH into the Pi from your management workstation:
-
-```bash
-ssh <your-username>@10.0.250.100
-```
-
-> **Can you reach VLAN xx from TRUSTED?** By design, the firewall rules from Step 4 block the Pi from reaching internal VLANs — but they do **not** block inbound SSH *from* internal VLANs *to* the Pi, since those rules live on the `HONEYPOT` interface (controlling traffic originating from the Pi). Traffic from TRUSTED → HONEYPOT is governed by the TRUSTED interface rules, which (from the previous home lab setup) allow all outbound traffic. You can therefore still manage the Pi from your trusted workstation.
->
-> If you want to further harden management access, add a dedicated rule on the TRUSTED interface: Block TCP from TRUSTED net to `10.0.250.100` port 22, **except** for your specific management workstation IP.
-
----
-
-## Step 8 – Harden the Raspberry Pi OS
-
-Before installing the sensor, apply baseline hardening to the Pi.
-
-### 8.1 – Update the OS
+Baseline OS prep on any Linux host:
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y
 sudo apt autoremove -y
-```
-
-### 8.2 – Set the Hostname
-
-```bash
-sudo hostnamectl set-hostname dshield-sensor
-```
-
-### 8.3 – Configure SSH Key Authentication (if not already done via Imager)
-
-From your management workstation:
-
-```bash
-# Generate a key pair if you don't already have one
-ssh-keygen -t ed25519 -C "homelab-dshield"
-
-# Copy the public key to the Pi
-ssh-copy-id -i ~/.ssh/id_ed25519.pub <your-username>@10.0.60.100
-```
-
-Then disable password authentication on the Pi:
-
-```bash
-sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
-sudo systemctl restart ssh
-```
-
-### 8.4 – Enable the Uncomplicated Firewall (UFW) on the Pi
-
-The Pi runs a honeypot, but the OS-level firewall provides a secondary layer of protection.
-
-```bash
-sudo apt install ufw -y
-
-# Deny all inbound by default
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-
-# Allow inbound SSH only from the management/trusted subnets
-sudo ufw allow from 10.0.10.0/24 to any port 22 proto tcp
-sudo ufw allow from 10.0.20.0/24 to any port 22 proto tcp
-
-# Allow the honeypot ports from anywhere (the OPNsense NAT forwards these)
-sudo ufw allow 1222/tcp comment 'SSH honeypot'
-sudo ufw allow 8080/tcp comment 'HTTP honeypot'
-sudo ufw allow 8443/tcp comment 'HTTPS honeypot'
-
-sudo ufw enable
-sudo ufw status verbose
-```
-
-> **Note on duplicate port 22:** The SSH honeypot runs on port 22 (the real SSH service is moved to a non-standard port during DShield installation — see Step 9). Until the installer moves the real SSH port, temporarily both the management access and the honeypot listener share port 22.
-
-### 8.5 – Set the Timezone
-
-```bash
 sudo timedatectl set-timezone America/New_York
 ```
 
 ---
 
-## Step 9 – Install the DShield Sensor
+## Step 3: Place the Sensor in the Correct Network Zone
 
-The ISC provides an automated installer script that sets up Cowrie (SSH honeypot), a web honeypot, log rotation, and the ISC submission daemon.
+### If Using the OPNsense Home Lab (Recommended)
 
-### 9.1 – Clone the DShield Repository
+Use the dedicated honeypot segment from the base guide:
+
+- HONEYPOT network: `10.10.110.0/24`
+- OPNsense HONEYPOT interface: `10.10.110.1`
+- Sensor host IP: `10.10.110.100` (static or DHCP reservation)
+
+Preferred connection model:
+
+- Dedicated igc3 segment from OPNsense, or
+- Dedicated HONEYPOT VLAN access port (untagged on sensor port, tagged on trunk)
+
+### If Using Cloud or Standalone (No OPNsense in Path)
+
+You still need isolation, but implemented differently:
+
+- Cloud: enforce at security group + host firewall
+- Standalone local network: isolate via dedicated VLAN/router if possible; at minimum lock down with host firewall and router rules
+
+Do not place the honeypot on the same unrestricted segment as trusted workstations.
+
+---
+
+## Step 4: OPNsense Interface and DHCP (Home Lab Path Only)
+
+If using OPNsense path, confirm interface:
+
+1. Interfaces -> HONEYPOT
+2. Enable interface
+3. Static IPv4: `10.10.110.1/24`
+
+Optional DHCP:
+
+1. Services -> DHCPv4 -> HONEYPOT
+2. Enable DHCP
+3. Narrow range (example `10.10.110.100` to `10.10.110.110`)
+4. DNS server: `10.10.100.10` (AdGuard)
+
+Use static mapping for sensor MAC -> `10.10.110.100`.
+
+If not using OPNsense, skip this step.
+
+---
+
+## Step 5: Isolation Firewall Policy
+
+### OPNsense Policy (Home Lab Path)
+
+On Firewall -> Rules -> HONEYPOT:
+
+1. Block HONEYPOT net -> RFC1918 alias
+2. Pass sensor host -> DNS resolver TCP/UDP 53
+3. Pass sensor host -> any TCP 443
+4. Pass sensor host -> any TCP 80 (only if needed for package repos)
+5. Block HONEYPOT net -> any (default deny)
+
+### Equivalent Policy for Cloud/Standalone
+
+Implement same intent in cloud firewall + host firewall:
+
+- Allow inbound only honeypot ports (22/80/443 externally, mapped to service listeners)
+- Allow outbound only required update/reporting traffic
+- Block outbound lateral movement to private internal ranges where possible
+- Keep admin SSH restricted to your management IP(s) on high port (example 12222)
+
+---
+
+## Step 6: Internet Exposure Method (NAT Is Optional by Scenario)
+
+This is where people often get confused. Use only the method that matches your deployment model.
+
+### Path A: Home Lab with OPNsense in Front
+
+Use OPNsense NAT port forwards so internet traffic reaches internal sensor IP.
+
+In Firewall -> NAT -> Port Forward:
+
+- WAN 22 -> `10.10.110.100:1222`
+- WAN 80 -> `10.10.110.100:8080`
+- WAN 443 -> `10.10.110.100:8443`
+- Filter rule association: create associated rule
+
+Do not forward admin SSH port 12222 from WAN.
+
+### Path B: Cloud VPS
+
+No OPNsense NAT needed here.
+
+Instead:
+
+1. Keep VM with public IP.
+2. In cloud security group/firewall, allow inbound 22, 80, 443 only.
+3. Keep admin SSH restricted by source IP and non-standard port if possible.
+4. Use host firewall (UFW/nftables) to enforce same restrictions.
+
+### Path C: Standalone Host Behind Non-OPNsense Router
+
+If the router is doing NAT, configure equivalent port forwards there (22->1222, 80->8080, 443->8443). If host has public IP directly, no NAT is needed.
+
+The requirement is exposure path, not specifically OPNsense.
+
+---
+
+## Step 7: Install DShield
+
+On the sensor host:
 
 ```bash
 cd ~
 git clone https://github.com/DShield-ISC/dshield.git
 cd dshield
-```
-
-### 9.2 – Run the Installer
-
-```bash
 sudo bash bin/install.sh
 ```
 
-The installer is interactive and will prompt you for the following:
+Installer values:
 
-**Prompt 1 — Email Address:**
-```
-Enter your email address:
-```
-Enter the email address associated with your ISC account.
+- ISC email
+- ISC API key
+- ISC user ID
+- Honeypot SSH port: 1222
+- Honeypot HTTP port: 8080
+- Honeypot HTTPS port: 8443
+- Real admin SSH port: 12222 (or your chosen high port)
+- Interface: eth0 (or your host NIC)
 
-**Prompt 2 — API Key:**
-```
-Enter your API key:
-```
-Paste the API key from your ISC account (Step 1).
-
-**Prompt 3 — User ID:**
-```
-Enter your numeric user ID:
-```
-Enter the numeric User ID from your ISC account page.
-
-**Prompt 4 — Honeypot Ports:**
-The installer will ask which ports the honeypot services should listen on. Accept the defaults:
-
-```
-SSH honeypot port [22]:          → press Enter (accept 22)
-HTTP honeypot port [8080]:       → press Enter (accept 8080)
-HTTPS honeypot port [8443]:      → press Enter (accept 8443)
-```
-
-**Prompt 5 — Real SSH Port:**
-To avoid conflicts, the installer moves the Pi's real SSH service to a different port:
-
-```
-Real SSH admin port [12222]:     → press Enter (or choose your own high port)
-```
-
-> **Critical:** After the installer completes and reboots the Pi, reconnect on the **new real SSH port** (default `12222`):
-> ```bash
-> ssh -p 12222 <your-username>@10.0.60.100
-> ```
-> Update your UFW rules on the Pi (if still accessible) or update the OPNsense HONEYPOT interface rules to allow TCP/12222 from management VLANs.
-
-**Prompt 6 — Interface:**
-```
-Network interface [eth0]:        → press Enter (accept eth0)
-```
-
-The installer will then:
-
-1. Install required packages (Python 3, Cowrie dependencies, nginx, certbot).
-2. Configure Cowrie as the SSH honeypot on port 22.
-3. Configure an nginx-based web honeypot on ports 8080 and 8443.
-4. Set up the `dshield` submission daemon to POST logs to `https://isc.sans.edu`.
-5. Configure log rotation and systemd service units.
-6. **Reboot the Pi.**
-
-### 9.3 – Update the UFW Rule for Real SSH
-
-After the Pi reboots, the real SSH port has changed. Update the Pi's UFW rules:
-
-```bash
-# Connect on the new port
-ssh -p 12222 <your-username>@10.0.60.100
-
-# Remove old port 22 admin-access rule and add port 12222
-sudo ufw delete allow from 10.0.10.0/24 to any port 22 proto tcp
-sudo ufw delete allow from 10.0.20.0/24 to any port 22 proto tcp
-sudo ufw allow from 10.0.10.0/24 to any port 12222 proto tcp
-sudo ufw allow from 10.0.20.0/24 to any port 12222 proto tcp
-sudo ufw reload
-```
-
-### 9.4 – Update the OPNsense HONEYPOT Interface Rules for Real SSH
-
-In OPNsense, add an inbound-direction pass rule on the **HONEYPOT** interface so that management workstations can reach the Pi on its new admin SSH port. This step is only required if you chose to restrict TRUSTED→HONEYPOT access during an optional hardening step; if TRUSTED is already allowed to initiate all outbound connections, no change is needed there.
-
-Navigate to **Firewall → Rules → HONEYPOT** and insert the following rule **before** the existing default-deny rule (rule 10):
-
-| # | Action | Protocol | Source              | Destination  | Port  | Description                            |
-|---|--------|----------|---------------------|--------------|-------|----------------------------------------|
-| insert before 10 | Pass | TCP | `10.0.10.0/24` or `10.0.20.0/24` | `10.0.60.100` | `12222` | Allow management SSH to Pi admin port |
-
-> This rule allows inbound TCP from your management or trusted subnets to reach the Pi on port 12222. Replace `12222` with the custom port you chose during installation if you changed the default.
+Reboot if prompted.
 
 ---
 
-## Step 10 – Verify the Sensor is Running
+## Step 8: Lock Down Management Access
 
-### 10.1 – Check Systemd Service Status
-
-```bash
-sudo systemctl status cowrie
-sudo systemctl status dshield
-sudo systemctl status nginx
-```
-
-All three services should show **active (running)**. If any service is failed, inspect its journal:
+Reconnect on real admin SSH port:
 
 ```bash
-sudo journalctl -u cowrie -n 50 --no-pager
-sudo journalctl -u dshield -n 50 --no-pager
+ssh -p 12222 <username>@<sensor_ip>
 ```
 
-### 10.2 – Confirm Honeypot Ports are Listening
+### If Using OPNsense
+
+Add rule on Firewall -> Rules -> HONEYPOT (above default deny):
+
+- Pass TCP from `10.10.99.0/24` (or single admin host) to sensor IP port 12222
+
+### Host Firewall Hardening (All Models)
 
 ```bash
-sudo ss -tlnp | grep -E '(:22|:8080|:8443|:12222)'
+sudo apt install -y ufw
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+# Management SSH (adjust source subnet/IP)
+sudo ufw allow from 10.10.99.0/24 to any port 12222 proto tcp
+
+# Honeypot listeners
+sudo ufw allow 1222/tcp
+sudo ufw allow 8080/tcp
+sudo ufw allow 8443/tcp
+
+sudo ufw enable
+sudo ufw status verbose
 ```
 
-Expected output:
-
-```
-LISTEN  0  128  0.0.0.0:22     0.0.0.0:*  users:(("cowrie",pid=...,fd=...))
-LISTEN  0  128  0.0.0.0:8080   0.0.0.0:*  users:(("nginx",pid=...,fd=...))
-LISTEN  0  128  0.0.0.0:8443   0.0.0.0:*  users:(("nginx",pid=...,fd=...))
-LISTEN  0  128  0.0.0.0:12222  0.0.0.0:*  users:(("sshd",pid=...,fd=...))
-```
-
-### 10.3 – Test SSH Honeypot Locally
-
-From a machine on the TRUSTED VLAN, simulate what an attacker sees on port 22:
-
-```bash
-ssh -p 22 root@10.0.250.100
-```
-
-Cowrie will accept the connection and present a fake shell. Type a few commands (`ls`, `whoami`, `id`) and then exit. These interactions are logged.
-
-### 10.4 – Inspect Cowrie Logs
-
-```bash
-sudo tail -f /srv/cowrie/var/log/cowrie/cowrie.json
-```
-
-You should see JSON-formatted log entries for the test session, including the commands typed.
-
-### 10.5 – Test HTTP Honeypot
-
-```bash
-curl -v http://10.0.250.100:8080/
-```
-
-You should receive an HTTP response (Cowrie/nginx-based web honeypot page). Any URL paths requested are logged.
-
-### 10.6 – Verify ISC Log Submission
-
-The DShield submission daemon sends logs to `https://isc.sans.edu` every few minutes. Check the submission logs:
-
-```bash
-sudo tail -f /var/log/dshield.log
-```
-
-A successful submission looks like:
-
-```
-[INFO] Submitted X records to isc.sans.edu
-[INFO] Response: 200 OK
-```
-
-You can also verify submissions on the ISC website:
-
-1. Log in to [https://isc.sans.edu/myaccount.html](https://isc.sans.edu/myaccount.html){:target="_blank"}.
-2. Under **My Reports**, confirm that recent log entries appear from your sensor IP.
+For cloud, replace `10.10.99.0/24` with your static public admin IP/CIDR.
 
 ---
 
-## Step 11 – Verify Network Isolation
+## Step 9: Validate Services and Isolation
 
-### 11.1 – Confirm the Pi Cannot Reach Internal VLANs
-
-From the Pi (connected to VLAN xx), attempt to reach resources in other VLANs. All should fail:
+Service checks:
 
 ```bash
-# Should fail — MANAGEMENT VLAN
-ping -c 3 10.0.10.1
-# Expected: 100% packet loss (blocked by OPNsense rule #1)
-
-# Should fail — TRUSTED VLAN
-ping -c 3 10.0.20.1
-# Expected: 100% packet loss (blocked by OPNsense rule #2)
-
-# Should fail — LAB VLAN
-ping -c 3 10.0.30.1
-# Expected: 100% packet loss (blocked by OPNsense rule #3)
+sudo systemctl status cowrie --no-pager
+sudo systemctl status dshield --no-pager
+sudo systemctl status nginx --no-pager
+sudo ss -tlnp | grep -E '(:1222|:8080|:8443|:12222)'
 ```
 
-### 11.2 – Confirm the Pi Can Reach the Internet for Reporting
+Network behavior checks:
 
 ```bash
-# Should succeed — ISC reporting endpoint
-curl -s -o /dev/null -w "%{http_code}" https://isc.sans.edu
-# Expected: 200 or 301
-
-# Should succeed — DNS resolution
-dig @9.9.9.9 isc.sans.edu +short
-# Expected: one or more IP addresses
+# DNS and ISC reporting path
+curl -I https://isc.sans.edu
 ```
 
-### 11.3 – Confirm WAN Port Forwarding is Working
-
-From a device **outside your network** (e.g., a mobile phone on cellular, or a VPS), attempt to connect to your WAN IP on the honeypot ports:
+If OPNsense home-lab path:
 
 ```bash
-# Test SSH honeypot from external network
-ssh root@<YOUR_WAN_IP>
-# Expected: Cowrie fake shell prompt (not a real SSH banner)
-
-# Test HTTP honeypot from external network
-curl -v http://<YOUR_WAN_IP>/
-# Expected: HTTP response from web honeypot
+# These should fail from sensor host
+ping -c 3 10.10.99.1
+ping -c 3 10.10.20.1
 ```
 
-> If you do not have external access, you can temporarily use an online port-checking tool such as [https://www.yougetsignal.com/tools/open-ports/](https://www.yougetsignal.com/tools/open-ports/){:target="_blank"} to verify ports 22, 80, and 443 are open on your WAN IP.
+External reachability test from outside network:
 
-### 11.4 – Review OPNsense Firewall Rule Hit Counts
-
-In OPNsense, navigate to **Firewall → Rules → HONEYPOT**. Hover over each rule to see hit counts. After the isolation tests in 11.1, the Block rules should show increased counters, confirming they are functioning.
-
-### 11.5 – Check OPNsense Firewall Logs
-
-```
-System → Log Files → Firewall
+```bash
+ssh -p 22 <public_ip>
+curl -I http://<public_ip>
+curl -k -I https://<public_ip>
 ```
 
-Filter by source IP `10.0.250.100` to see all blocked outbound traffic from the Pi. You should see blocked entries corresponding to the ping tests above.
+Expected:
+
+- internet reaches honeypot services
+- real admin SSH stays private/restricted
+- no unrestricted lateral access from sensor into trusted networks
 
 ---
 
-## Step 12 – Ongoing Maintenance
+## Step 10: Integrate with Monitoring
 
-### 12.1 – Keep the Sensor Updated
+For consistency with your main lab:
 
-```bash
-cd ~/dshield
-git pull
-sudo bash bin/install.sh
-```
+- Keep sensor DNS through AdGuard where applicable
+- Forward logs to Wazuh (optional)
+- Use Slack/email notifications for high-severity events
 
-Re-running the installer script applies any updates to Cowrie and the submission daemon without losing your configuration.
-
-### 12.2 – Keep the OS Updated
-
-Set up unattended security updates to avoid manual patching:
-
-```bash
-sudo apt install unattended-upgrades -y
-sudo dpkg-reconfigure --priority=low unattended-upgrades
-```
-
-Select **Yes** when prompted.
-
-### 12.3 – Monitor Disk Space
-
-Cowrie logs can grow quickly if the sensor is actively attacked. Set up log rotation (the DShield installer configures this, but verify it):
-
-```bash
-cat /etc/logrotate.d/cowrie
-```
-
-Ensure rotation is set to `daily` with at least 7 days retention and `compress` enabled. Check current disk usage:
-
-```bash
-df -h /
-du -sh /srv/cowrie/var/log/cowrie/
-```
-
-### 12.4 – Review ISC Dashboard Regularly
-
-Log in to [https://isc.sans.edu/myaccount.html](https://isc.sans.edu/myaccount.html){:target="_blank"} periodically to review:
-
-- Total records submitted from your sensor.
-- Top attacker IPs reported by your sensor.
-- Comparison of your sensor's data with global DShield trends.
+Optional: install Wazuh agent on sensor host for endpoint telemetry.
 
 ---
 
-## Optional Enhancements
+## Common Mistakes to Avoid
 
-- **Elastic Stack (ELK) Integration:** Ship Cowrie JSON logs to Elasticsearch/Kibana for richer visualisation. The DShield project provides Kibana dashboards.
-- **GeoIP Enrichment:** Configure Maxmind GeoLite2 in Cowrie to tag attacker IPs with country/ASN data in logs.
-- **Alerting:** Use a tool like `logwatch` or a Kibana alert rule to email you when login attempts spike above a threshold.
-- **T-Pot Integration:** [T-Pot](https://github.com/telekom-security/tpotce){:target="_blank"} is a multi-honeypot platform that includes DShield as one of many sensors — useful if you want a broader honeypot suite on a single host.
-- **Second Honeypot Pi:** Deploy a second sensor on a different public IP (e.g. a cloud VPS) and correlate data across sensors on the ISC dashboard.
-- **Centralized Syslog:** Forward the Pi's syslog to OPNsense's syslog receiver for centralized log storage with **System → Log Files → Settings → Remote Logging**.
+- Assuming NAT forwarding is always required (it is not in cloud/public-IP deployments)
+- Exposing real admin SSH port on WAN/public internet
+- Running honeypot on trusted user VLAN for convenience
+- Allowing broad outbound access from sensor to internal private networks
+- Skipping verification after rule changes
 
 ---
 
 ## Key Takeaways
 
-- **Network isolation is the foundation:** By placing the DShield Pi in a dedicated `HONEYPOT` VLAN with strict OPNsense firewall rules, you ensure that a compromised sensor cannot pivot into your internal networks.
-- **Default-deny outbound:** The HONEYPOT interface rules block all outbound traffic except the minimum needed (HTTPS for ISC reporting, DNS, and HTTP for OS updates). This limits blast radius if the Pi itself is compromised.
-- **Port forwarding targets the VLAN IP:** OPNsense NAT forwards WAN ports 22, 80, and 443 directly to `10.0.250.100`, keeping the real management SSH port (`12222`) invisible to the internet.
-- **The RFC 1918 alias simplifies rule maintenance:** A single alias-based block rule covers all internal subnets, future-proofing the isolation as you add VLANs.
-- **Contribute and learn:** Every connection logged by your DShield sensor contributes to the ISC global threat-intelligence feed. Regularly reviewing the ISC dashboard turns your honeypot from a passive sensor into an active learning tool.
+- This post is an add-on to the base OPNsense homelab design, but the same DShield concepts work in cloud and standalone deployments.
+- OPNsense NAT forwarding is optional by architecture and only used when OPNsense is the internet edge for your sensor.
+- Raspberry Pi is common, but DShield can run on cloud VMs and other Linux hosts.
+- Isolation and least-privilege management matter more than host type.
 
 ---
 
-**Disclaimer:** This walkthrough is for educational and home lab purposes only. Intentionally exposing a honeypot to the internet attracts real malicious traffic. Always verify your firewall isolation rules thoroughly before enabling WAN port forwarding, and ensure your setup complies with applicable laws and your ISP's terms of service.
+**Disclaimer:** This setup is for educational/home-lab use. Any internet-exposed honeypot will receive hostile traffic. Validate segmentation, access controls, and legal/policy constraints before enabling exposure.

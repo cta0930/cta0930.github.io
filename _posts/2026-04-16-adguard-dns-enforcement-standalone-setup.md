@@ -8,77 +8,54 @@ tags: [adguard, dns, docker, opnsense, dns-filtering, doh, dot, homelab, network
 
 # AdGuard with Docker: Standalone Setup and DNS Enforcement Validation
 
-## Overview
+## Scope and example conventions
 
-This standalone guide covers deploying AdGuard Home with Docker and proving DNS enforcement works end-to-end.
+This guide deploys AdGuard Home on a Linux Docker host and validates a specific DNS access policy. It complements the [OPNsense homelab guide](/posts/homelab-network-setup/). Documentation was reviewed on 2026-09-28; no live resolver or firewall was tested.
 
-This write-up focuses on:
+All internal addresses and names are synthetic: AdGuard `10.77.100.10`, optional OPNsense Unbound `10.77.100.1`, and administrator `10.77.90.10`. Substitute your private plan consistently. Public resolver addresses below are intentional test/upstream services, not operational identifiers. Do not publish real client names, query logs, configuration exports, TLS keys, DNS-provider credentials, or screenshots with account/browser metadata.
 
-- AdGuard Docker deployment
-- upstream DNS over HTTPS configuration
-- optional OPNsense Unbound as upstream and fallback behavior
-- DHCP and client DNS assignment strategy
-- OPNsense firewall DNS enforcement rules
-- validation tests to confirm DNS bypass is blocked
-- troubleshooting when clients still use external DNS
+The intended path is client -> AdGuard -> chosen upstream. DHCP advertises the resolver; firewall rules constrain conventional DNS; endpoint policy is needed to control applications using encrypted DNS or tunnels. Passing port-53 tests does not prove that every possible DNS bypass is blocked.
 
----
+## 1. Prepare the host and reserve ports
 
-## Architecture Goals
+Use a supported Linux distribution and [Docker Engine installation](https://docs.docker.com/engine/install/ubuntu/), with the Compose plugin. This example uses Linux host networking; Docker Desktop networking differs. Assign a stable host address, keep console/SSH recovery, and verify time synchronization.
 
-AdGuard is most useful when it becomes the single approved resolver for your network.
+| Listener | Exposure |
+|---|---|
+| TCP/UDP 53 | Approved DNS clients only |
+| TCP 3000 | Administrator only, including setup |
+| TCP 443 | Reserved for Wazuh on the combined homelab server |
+| TCP 8080 | Reserved for OpenCTI on the combined server |
 
-Target flow:
+AdGuard can serve additional encrypted-DNS protocols, but they are not enabled or exposed by this recipe. Do not forward its resolver or administration ports from WAN.
 
-1. Clients get DNS server from DHCP (AdGuard IP)
-2. Clients send DNS only to AdGuard
-3. AdGuard forwards upstream using controlled resolvers (DoH/DoT)
-4. Firewall blocks all direct client DNS attempts to the internet
-
-If any client can query public resolvers directly, filtering and visibility are incomplete.
-
----
-
-## Prerequisites
-
-- Docker host (Ubuntu/Debian recommended)
-- Static IP for AdGuard host (example: `10.10.100.10`)
-- OPNsense already routing VLANs (if using this guide with the main homelab)
-- Admin access to DHCP scopes and firewall rules
-
-Ports used:
-
-| Port | Protocol | Use |
-|---|---|---|
-| 53 | TCP/UDP | DNS service |
-| 80 | TCP | Web UI (optional HTTP redirect) |
-| 443 | TCP | Web UI HTTPS |
-| 3000 | TCP | Initial setup UI (first-run wizard) |
-
----
-
-## Step 1: Deploy AdGuard with Docker
-
-Create folders:
+Check existing listeners before starting:
 
 ```bash
-sudo mkdir -p /opt/adguard/data/{work,conf}
-sudo chown -R $USER:$USER /opt/adguard
+sudo ss -lntup
 ```
 
-Create compose file:
+Inspect port 53 conflicts, especially `systemd-resolved`. Binding to a specific service address may avoid a loopback-only conflict; wildcard listeners may not. If changing the host's stub resolver, follow [AdGuard's Docker instructions](https://adguard-dns.io/kb/adguard-home/docker/) and preserve a working `/etc/resolv.conf`. Do not create a bootstrap loop in which AdGuard needs itself to resolve its upstream hostname.
+
+## 2. Deploy a pinned container
+
+Create a directory owned by the deployment administrator:
 
 ```bash
-nano /opt/adguard/docker-compose.yml
+sudo mkdir -p /opt/adguard/data/work /opt/adguard/data/conf
+sudo chown "$USER:$(id -gn)" /opt/adguard
+cd /opt/adguard
+umask 077
 ```
 
-Use:
+Create `.env` and set `ADGUARD_VERSION` to a reviewed release tag from the official image, for example using an editor. Do not leave it blank or use an unreviewed moving tag. Store the chosen tag/digest and upgrade date privately.
+
+Create `compose.yaml`:
 
 ```yaml
 services:
   adguard:
-    image: adguard/adguardhome:latest
-    container_name: adguardhome
+    image: "adguard/adguardhome:${ADGUARD_VERSION:?Set a reviewed release tag}"
     restart: unless-stopped
     network_mode: host
     volumes:
@@ -86,288 +63,112 @@ services:
       - ./data/conf:/opt/adguardhome/conf
 ```
 
-Why `network_mode: host`:
+There is no `ports` block with host networking. The process shares the host's network namespace, so configure actual listen addresses and host firewall rules. Host networking is one choice; it does not repair source addresses already translated by an upstream router.
 
-- DNS works cleanly on port 53
-- client source IP visibility remains accurate
-- avoids Docker bridge NAT quirks for DNS logging
-
-Start container:
+Before startup, allow admin TCP 3000 and intended clients' TCP/UDP 53 at the host and on their **source ingress** interfaces in OPNsense. Preserve SSH from the admin host before enabling any host default-deny policy. Restrict other service ports separately. If using Docker bridge publishing instead, ordinary UFW input rules may be bypassed; use [Docker-aware filtering](https://docs.docker.com/engine/network/packet-filtering-firewalls/) and test it.
 
 ```bash
-cd /opt/adguard
+docker compose config --quiet
+docker compose pull
 docker compose up -d
 docker compose ps
+docker compose logs --tail=100 adguard
 ```
 
-First-run UI:
+From the approved administrator, open `http://10.77.100.10:3000` for the wizard. Keep the UI on port 3000, bind DNS to the intended service address, and set unique credentials. Use an SSH tunnel or properly configured HTTPS for administration across untrusted links; do not move the UI to Wazuh's port 443. Limit resolver access to the approved client networks and keep the setup port private from the first start.
 
-- `http://<adguard-ip>:3000`
+## 3. Choose upstream behavior explicitly
 
-Complete setup wizard and set strong admin credentials.
+Choose one design and test it. The [AdGuard configuration reference](https://adguard-dns.io/kb/adguard-home/configuration/) distinguishes normal upstreams, bootstrap resolvers, and fallback resolvers.
 
----
+| Design | Normal upstream field | Fallback field |
+|---|---|---|
+| Local recursive resolver only | `10.77.100.1` | Empty |
+| Local resolver with public fallback | `10.77.100.1` | Chosen DoH endpoint |
+| Public encrypted upstream | Chosen DoH endpoint | Optional separately chosen service |
 
-## Step 2: Configure Upstream DNS and Filtering
+A DoH example is `https://dns.quad9.net/dns-query`; configure a reachable bootstrap resolver where required. Bootstrap DNS resolves upstream hostnames; it is not the fallback query path. Evaluate provider policy before selecting a service.
 
-In AdGuard UI:
+**List order is not failover priority.** Load balancing selects among normal upstreams; parallel mode queries them together. Use the dedicated fallback setting for unavailable upstreams. A valid negative answer is not the same as an upstream being unavailable. Public fallback changes which provider receives queries and does not make local-only records available during an outage.
 
-1. Settings -> DNS settings
-2. Upstream DNS servers:
+For Unbound, listen on the intended SECSTACK address, permit AdGuard's host address in its access controls, and allow AdGuard-to-Unbound TCP/UDP 53 on SECSTACK ingress. Do not forward Unbound back to AdGuard. Recursive Unbound also needs its own outbound DNS access; a forwarding configuration has different upstream requirements. See [OPNsense Unbound](https://docs.opnsense.org/manual/unbound.html).
 
-```text
-https://dns.quad9.net/dns-query
-https://dns.cloudflare.com/dns-query
-```
+Client DNS blocks must exempt AdGuard's intended upstream/bootstrap traffic before any catch-all denial. Restrict direct client access to Unbound so that it cannot bypass AdGuard filtering. Treat local-name and private reverse-DNS forwarding as separate configuration and test that private names do not leak to public providers.
 
-3. Bootstrap DNS:
+## 4. Set filtering and client DNS
 
-```text
-9.9.9.9
-1.1.1.1
-```
+Begin with a small maintained filter set, then test applications before adding more. Record why an allowlist entry exists. Query logs contain browsing and device information: choose a limited retention period, restrict access, and sanitize exported samples.
 
-4. Query mode: Parallel requests
-
-Blocklists (start with 2-4, then tune):
-
-- AdGuard DNS filter
-- OISD
-- URLhaus
-- Hagezi Pro or similar curated list
-
-Do not enable every list immediately. Too many overlapping lists increase false positives.
-
-### Optional: Use OPNsense Unbound as Upstream with Fallback
-
-If you run Unbound on OPNsense, you can use it as AdGuard's local recursive resolver and optionally keep DoH providers as fallback.
-
-Recommended patterns:
-
-1. Privacy-first recursive mode:
-- AdGuard upstream: OPNsense Unbound only (for example `10.10.100.1`)
-- Behavior: if Unbound is down, DNS fails (expected)
-
-2. Resilience mode (recommended for most labs):
-- AdGuard upstream order:
-  - `10.10.100.1`
-  - `https://dns.quad9.net/dns-query`
-  - `https://dns.cloudflare.com/dns-query`
-- Behavior: AdGuard prefers local Unbound and fails over to DoH if Unbound is unavailable
-
-OPNsense Unbound settings to support this cleanly:
-
-1. Services -> Unbound DNS -> General
-2. Enable Unbound DNS
-3. Network interfaces: include only the interface where AdGuard can reach OPNsense (commonly SECURITY_STACK) and localhost
-4. Access lists: allow only trusted source(s), at minimum AdGuard host IP/subnet
-5. Save and apply
-
-Important: do not hand out OPNsense/Unbound directly in DHCP if your policy is "all clients must use AdGuard". Only AdGuard should query Unbound in this model.
-
-Validation for Unbound fallback behavior:
-
-1. Confirm normal resolution while Unbound is running:
+On the installed OPNsense release's DHCP service, advertise only approved AdGuard addresses. Do not advertise a public resolver as a "secondary" if clients must be filtered; clients may use it at any time. For resilience, deploy another approved filtering resolver instead. Keep the working resolver until AdGuard has passed a client test, then renew leases.
 
 ```bash
-nslookup example.com 10.10.100.10
+# Linux; a local stub address may appear in resolv.conf.
+resolvectl status
 ```
-
-2. Temporarily stop Unbound on OPNsense:
-
-- Services -> Unbound DNS -> Disable (or stop service)
-
-3. Query again through AdGuard:
-
-```bash
-nslookup example.com 10.10.100.10
-```
-
-Expected results:
-
-- Privacy-first mode: query fails (no fallback configured)
-- Resilience mode: query still succeeds via DoH fallback
-
-4. Re-enable Unbound and confirm AdGuard returns to local upstream path.
-
----
-
-## Step 3: Assign AdGuard via DHCP
-
-For each DHCP scope (OPNsense Services -> DHCPv4 -> Interface):
-
-1. Set DNS server to AdGuard IP (`10.10.100.10`)
-2. Save and apply
-3. Renew lease on test client
-
-Client check:
-
-```bash
-# Linux
-resolvectl status | grep "DNS Servers" -A2
-
-# or
-cat /etc/resolv.conf
-```
-
-Windows check:
 
 ```powershell
+# Windows
 ipconfig /all
 ```
 
-Expected: DNS server is AdGuard IP.
+Static clients, browser secure-DNS settings, and VPN DNS need separate checks. For an approved WireGuard peer, `DNS = 10.77.100.10` also requires a route and a tunnel-ingress DNS pass rule. The profile setting alone is not enforcement.
 
----
+## 5. Apply ordered DNS rules
 
-## Step 4: Enforce DNS in OPNsense Firewall
+Create host alias `DNS_SERVER = 10.77.100.10`. On each client ingress interface, place these rules before general Internet pass rules and before blocks that would otherwise deny the resolver:
 
-This is the key control. Without enforcement, clients can bypass AdGuard.
+| Order | Action | Destination |
+|---|---|---|
+| 1 | Pass TCP/UDP | DNS_SERVER port 53 |
+| 2 | Block/log TCP/UDP | Any other port 53 |
+| 3 | Block/log TCP/UDP | Any port 853 |
 
-Create alias first:
+Keep the homelab's other segmentation rules. Review floating/group rules, existing states, and any DNS redirect NAT that changes these tests. This guide uses **blocking**, not transparent DNS redirection. Routed rules do not constrain same-subnet traffic; use endpoint/host controls where needed.
 
-- Firewall -> Aliases -> Add
-  - Name: `DNS_SERVER`
-  - Type: Host
-  - Value: `10.10.100.10`
+Port 853 blocks typical DoT and DoQ. DoH can use HTTPS TCP/UDP 443, and VPN/proxy traffic can carry DNS too. Known-provider aliases and application filtering offer partial coverage, not a universal guarantee. Managed browser/OS settings may be necessary.
 
-On each internal VLAN/interface, add rules in this order:
+These examples are IPv4-only. Either deploy equivalent IPv6 DNS advertisement/filtering or deliberately disable/block IPv6 along the relevant paths. DHCPv4 changes do not override DNS learned through IPv6 router advertisements or DHCPv6.
 
-1. Pass VLAN net -> `DNS_SERVER` TCP/UDP 53
-2. Block VLAN net -> any TCP/UDP 53
-3. Block VLAN net -> any TCP 853 (DoT)
+## 6. Validate from every zone
 
-Optional stricter controls:
-
-- Block known public DoH endpoints using aliases (partial control)
-- Use Zenarmor/application policy to reduce DoH bypass over 443
-
-Important: first-match wins. Place pass-to-AdGuard above block rules.
-
----
-
-## Step 5: Validation Checklist (Must Pass)
-
-Run these from a client on each VLAN.
-
-### Test A: Normal resolution through AdGuard
+Use a client on each VLAN and the VPN. If available, `dig` tests both UDP and TCP; `nslookup` is useful for basic resolution. Record results privately.
 
 ```bash
-nslookup example.com 10.10.100.10
+# Approved resolver: both should succeed.
+dig @10.77.100.10 example.com A +time=2 +tries=1
+dig @10.77.100.10 example.com A +tcp +time=2 +tries=1
+
+# Direct conventional DNS bypass: both should fail under this policy.
+dig @8.8.8.8 example.com A +time=2 +tries=1
+dig @8.8.8.8 example.com A +tcp +time=2 +tries=1
+
+# TCP connectivity check only, not a complete encrypted-DNS test.
+nc -vz -w 3 1.1.1.1 853
 ```
 
-Expected: success.
+Verify the allowed query in AdGuard and denied attempts in firewall logs. A timeout without matching evidence can also mean an unrelated outage. A successful DNS response may be cached; it does not by itself prove upstream connectivity or failover.
 
-### Test B: Direct bypass to public resolver should fail
+For fallback testing, arrange a maintenance window and restore access immediately afterward. Temporarily make only the normal upstream unavailable, use a query not already cached (or clear caches in the test environment), and inspect the actual upstream used. Check that local-only mode fails for uncached public queries, fallback mode uses its configured fallback, and the normal path resumes after recovery. Test internal names separately; they should not be expected to resolve publicly.
 
-```bash
-nslookup example.com 8.8.8.8
-nslookup example.com 1.1.1.1
-```
+- [ ] Admin UI is reachable only by approved administrators.
+- [ ] WAN cannot reach DNS or the setup/admin UI.
+- [ ] Both TCP and UDP DNS behave as intended on every client network.
+- [ ] DoH, DoQ, IPv6, and VPN behavior match the documented limits.
+- [ ] The resolver's bootstrap/upstream access works after reboot.
+- [ ] Source addresses remain useful for the intended client policy.
+- [ ] Fallback tests account for caches and include upstream evidence.
 
-Expected: timeout or blocked response.
+## 7. Back up, update, and troubleshoot
 
-### Test C: DoT bypass should fail
+Protect the Compose/environment files and both persistent directories. Stop AdGuard briefly for a consistent file backup, secure the backup because it may contain keys, credentials, and query history, then restart and test DNS. For a new release, review notes, change the pinned version, pull/recreate the container, and verify client resolution. Retain the previous version and matching backup for recovery; do not assume configuration migrations are reversible.
 
-```bash
-# test TCP 853 connectivity
-nc -vz 1.1.1.1 853
-```
+| Symptom | Check |
+|---|---|
+| Container cannot bind DNS | Existing port-53 listeners, bind address, host resolver configuration |
+| Clients use old DNS | Lease renewal, static/VPN settings, IPv6 advertisements, browser DoH |
+| Public port-53 query succeeds | Earlier pass/floating rule, wrong ingress interface, existing states, redirect NAT |
+| All clients appear as one host | Forwarding resolver or source NAT; host networking alone cannot reverse it |
+| Local resolver fails but fallback seems unused | Fallback field, bootstrap/egress access, valid negative answers, caches |
+| DNS breaks during server maintenance | Single point of failure; plan a second approved resolver |
 
-Expected: blocked.
-
-### Test D: Query appears in AdGuard log
-
-In AdGuard -> Query log, confirm client IP and query entries are visible.
-
-If using Unbound upstream, also verify upstream path behavior in AdGuard query details (local Unbound vs fallback provider) during normal and failover tests.
-
-### Test E: Firewall logs show blocked bypass attempts
-
-In OPNsense firewall logs, filter by client IP and look for blocked 53/853 attempts.
-
-If all tests pass, DNS enforcement is working correctly.
-
----
-
-## Step 6: Recommended Hardening
-
-1. Restrict AdGuard admin UI access to management subnet only
-2. Enable HTTPS for web UI
-3. Export AdGuard config backup after initial stable setup
-4. Monitor top blocked domains and adjust allowlist deliberately
-5. Keep host OS and container image updated
-
-UFW example on AdGuard host:
-
-```bash
-sudo ufw allow from 10.10.99.0/24 to any port 443 proto tcp
-sudo ufw allow from 10.10.0.0/16 to any port 53 proto tcp
-sudo ufw allow from 10.10.0.0/16 to any port 53 proto udp
-sudo ufw default deny incoming
-sudo ufw enable
-```
-
----
-
-## Step 7: Troubleshooting
-
-1. Clients still using old DNS
-- Renew DHCP lease
-- Reboot client network stack
-- Check static DNS hardcoded on endpoint
-
-2. Queries work to 8.8.8.8 despite block rules
-- Rule order incorrect on interface
-- Wrong interface selected
-- Floating rule overriding expected behavior
-
-3. AdGuard query log missing client IPs
-- Verify `network_mode: host`
-- Avoid NATing DNS through extra middleboxes where possible
-
-4. Some apps still resolve despite blocks
-- App using DoH over 443
-- Add app policy controls (Zenarmor/endpoint policy)
-
-5. DNS behavior changes when Unbound service restarts
-- Confirm your chosen mode (privacy-first vs resilience fallback)
-- In resilience mode, temporary upstream switch to DoH is expected while Unbound is unavailable
-- In privacy-first mode, temporary DNS outage is expected if Unbound is the only upstream
-
-6. Clients resolve directly through OPNsense instead of AdGuard
-- Check DHCP scopes are handing out AdGuard IP only
-- Ensure interface firewall rules allow 53 only to AdGuard alias and block other 53/853 destinations
-- Ensure OPNsense Unbound is not exposed broadly to client VLANs unless intentionally designed
-
----
-
-## Integration with Main Homelab Guide
-
-If you are using the main OPNsense homelab stack:
-
-- keep AdGuard on Security Stack network (`10.10.100.0/24`)
-- enforce DNS on each VLAN/interface as described
-- validate from all zones including WireGuard clients
-
-For WireGuard full-tunnel clients, ensure WG profile uses:
-
-```ini
-DNS = 10.10.100.10
-```
-
-Without this, remote clients may bypass local policy and lose consistent filtering.
-
----
-
-## Key Takeaways
-
-- AdGuard deployment is quick; DNS enforcement is where security value is created.
-- DHCP assignment alone is not enough; firewall policy must block alternate resolvers.
-- If using Unbound with AdGuard, decide explicitly between privacy-first (no fallback) and resilience (DoH fallback) behavior.
-- Validation testing per VLAN is mandatory to prove bypass is actually blocked.
-- Keep notification and logging pipelines (Wazuh/Slack/email) tuned so DNS anomalies are actionable.
-
----
-
-**Disclaimer:** This guide is for educational and lab use. Ensure DNS filtering/enforcement policies comply with organizational and legal requirements in your environment.
+**Unverified locally:** installed AdGuard/OPNsense versions, host listener conflicts, actual fallback behavior, IPv6 policy, and client source visibility. Complete the tests before describing this as a validated deployment.

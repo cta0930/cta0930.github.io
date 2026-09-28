@@ -8,499 +8,175 @@ tags: [opencti, docker, threat-intelligence, ioc, mitre-attack, elasticsearch, r
 
 # OpenCTI with Docker: Standalone Setup for Threat Intelligence and IOC Workflows
 
-## Overview
+## Scope and example conventions
 
-This is a full standalone guide for deploying OpenCTI with Docker. It is designed for home labs, security testing environments, and small SOC workflows that need a local threat-intelligence platform.
+This guide covers a private single-host deployment, connector validation, analyst workflow, and recovery planning. It complements the [OPNsense homelab guide](/posts/homelab-network-setup/). Documentation was reviewed on 2026-09-28; no live stack or restore was tested.
 
-This walkthrough includes:
+The server `10.77.100.10`, administrator `10.77.90.10`, and account `admin@example.com` are synthetic examples. Keep operational addresses, account identifiers, tokens, environment files, encryption keys, webhook URLs, logs, and screenshots private. Intelligence records may contain victim identities or confidential evidence; sanitize exported examples separately from configuration.
 
-- complete OpenCTI Docker stack deployment
-- secure environment configuration and secrets handling
-- initial admin setup and first login
-- connector setup for threat feeds and enrichment
-- IOC lifecycle workflow basics
-- maintenance, backups, upgrades, and troubleshooting
+OpenCTI relates intelligence entities and evidence. Installing it does not automatically correlate Wazuh alerts or push firewall blocks. Those require separately tested integrations and decisions about which data may leave the platform.
 
----
+## 1. Select a supported release
 
-## What OpenCTI Provides
+Start with the [official installation guide](https://docs.opencti.io/latest/deployment/installation/) and [Docker distribution](https://github.com/OpenCTI-Platform/docker). Select compatible platform, worker, connector, and dependency versions. Record the repository commit and image digests privately. Do not combine an old platform example with moving `latest` dependencies.
 
-OpenCTI helps you manage and operationalize threat intelligence by correlating entities such as:
+Typical components include the platform/API, workers, a search backend, Redis, RabbitMQ, and S3-compatible object storage. The distribution evolves and may include additional integration-management services. Review every service, mount, capability, and published port before starting; upstream examples do not necessarily expose only the UI.
 
-- indicators (IPs, domains, hashes, URLs)
-- malware families
-- threat actors and intrusion sets
-- campaigns and attack patterns
-- reports and external intelligence sources
+Size CPU, memory, disk, and retention from the selected release's requirements and expected ingestion. A generic 8 GB minimum is not validated for a combined OpenCTI/Wazuh/DNS host. Leave resources for the operating system and dependencies. Consider a separate DNS host to prevent resource exhaustion from interrupting the network.
 
-Core value in a lab:
+Install Docker Engine and Compose through [Docker's supported Ubuntu instructions](https://docs.docker.com/engine/install/ubuntu/). Docker-group membership grants powerful host control. Set search-backend kernel requirements, including `vm.max_map_count`, to the selected version's documented values and persist them appropriately; do not assume an older tuning value remains sufficient.
 
-- central place for intel data curation
-- local IOC searching and scoring
-- feed ingestion and enrichment workflows
-- mapping to MITRE ATT&CK for analyst context
+## 2. Obtain complete deployment files
 
----
+Use a new private directory outside the website checkout. Do not overwrite an existing deployment:
 
-## Architecture (Single-Host Docker)
+```bash
+mkdir -p ~/private-deployments
+cd ~/private-deployments
+umask 077
+git clone https://github.com/OpenCTI-Platform/docker.git opencti
+cd opencti
+read -r -p "Reviewed Docker repository commit: " OPENCTI_DOCKER_REF
+git checkout --detach "${OPENCTI_DOCKER_REF:?A reviewed commit is required}"
+git rev-parse HEAD
+```
 
-OpenCTI depends on several services:
+Select a reviewed commit compatible with your chosen release. Retain its companion configuration mounts and environment templates. Pin each image to a compatible reviewed version/digest; a repository commit does not pin images using moving tags.
 
-- OpenCTI platform API/UI
-- worker service (background jobs)
-- Redis (task/cache)
-- RabbitMQ (queue)
-- Elasticsearch (search/index)
-- MinIO (object storage)
+## 3. Configure credentials and persistence
 
-Core ports in this guide:
+Copy the selected release's sample environment file to `.env` and replace every required placeholder. Do not use an abbreviated environment block from another release.
 
-| Service | Port |
+| Value | Handling |
 |---|---|
-| OpenCTI web UI/API | 8080 |
-| Elasticsearch (internal) | 9200 |
-| MinIO (internal unless exposed) | 9000 |
-| RabbitMQ mgmt (optional expose) | 15672 |
+| Administrator email/password | Private real account and unique generated password |
+| Tokens/connector IDs | Generate in the required format; preserve stable connector IDs |
+| Application encryption keys | Generate as documented and retain securely for recovery |
+| Backend credentials | Unique per service and consistent at both ends |
+| External URL | Actual browser-facing URL, distinct from internal service URLs |
+| SMTP/provider credentials | Configure only for intended integrations |
 
-For security, expose only OpenCTI (8080) unless you explicitly need admin UIs for other services.
-
----
-
-## Prerequisites
-
-Recommended host minimum:
-
-- 4 vCPU (8 preferred)
-- 8 GB RAM minimum (16 GB preferred)
-- 100 GB SSD minimum
-- Ubuntu 22.04/24.04 or comparable Linux host
-
-Install Docker Engine and Compose plugin (official repository):
+Generate secrets locally with a password manager or the release's documented method. `.env` is not an encrypted secret store; Docker access and diagnostics may reveal values. Never publish expanded Compose configuration.
 
 ```bash
-sudo apt update
-sudo apt install -y ca-certificates curl gnupg
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-  sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-
-echo "deb [arch=$(dpkg --print-architecture) \
-  signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io \
-  docker-buildx-plugin docker-compose-plugin
-
-sudo usermod -aG docker $USER
-newgrp docker
+chmod 600 .env
+git check-ignore .env
 ```
 
-Verify:
+If the second command shows nothing, add `.env` to this private checkout's `.git/info/exclude` or an appropriate ignore rule. Do not commit credentials. Review named volumes and bind mounts, ownership, and free space. Avoid world-writable data directories. Archiving only the project directory does not include Docker named-volume contents.
 
-```bash
-docker --version
-docker compose version
-```
+## 4. Restrict exposure before startup
 
-Set Elasticsearch kernel requirement:
-
-```bash
-sudo sysctl -w vm.max_map_count=262144
-echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.conf
-```
-
----
-
-## Step 1: Prepare Project Directory
-
-```bash
-sudo mkdir -p /opt/opencti
-sudo chown -R $USER:$USER /opt/opencti
-cd /opt/opencti
-```
-
-Create data directories for persistent volumes:
-
-```bash
-mkdir -p data/{redis,elasticsearch,minio,rabbitmq}
-```
-
----
-
-## Step 2: Create Environment File
-
-Create `.env` with strong credentials:
-
-```bash
-nano /opt/opencti/.env
-```
-
-Example values:
-
-```dotenv
-# OpenCTI app
-OPENCTI_ADMIN_EMAIL=admin@lab.local
-OPENCTI_ADMIN_PASSWORD=ReplaceWithStrongPassword!
-OPENCTI_ADMIN_TOKEN=replace-with-random-uuid
-OPENCTI_BASE_URL=http://10.10.100.10:8080
-APP__PORT=8080
-
-# RabbitMQ
-RABBITMQ_DEFAULT_USER=opencti
-RABBITMQ_DEFAULT_PASS=ReplaceRabbitStrongPass
-
-# MinIO
-MINIO_ROOT_USER=opencti
-MINIO_ROOT_PASSWORD=ReplaceMinioStrongPass
-
-# SMTP (optional, for email notifications)
-SMTP_HOSTNAME=
-SMTP_PORT=587
-SMTP_USERNAME=
-SMTP_PASSWORD=
-SMTP_TLS=true
-
-# Elasticsearch memory tuning
-ES_JAVA_OPTS=-Xms1g -Xmx1g
-```
-
-Generate a UUID for `OPENCTI_ADMIN_TOKEN`:
-
-```bash
-cat /proc/sys/kernel/random/uuid
-```
-
-Security notes:
-
-- do not commit `.env` to git
-- use unique, long passwords
-- rotate credentials if this host is exposed or shared
-
----
-
-## Step 3: Create Docker Compose File
-
-```bash
-nano /opt/opencti/docker-compose.yml
-```
-
-Use this baseline stack:
+For a simple private lab, publish the platform on host loopback and use SSH. In the selected Compose file, **replace** the platform's existing port mapping with:
 
 ```yaml
-services:
-  redis:
-    image: redis:7.2
-    container_name: opencti-redis
-    restart: unless-stopped
-    volumes:
-      - ./data/redis:/data
-
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
-    container_name: opencti-elasticsearch
-    restart: unless-stopped
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - ES_JAVA_OPTS=${ES_JAVA_OPTS}
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    volumes:
-      - ./data/elasticsearch:/usr/share/elasticsearch/data
-
-  minio:
-    image: minio/minio:latest
-    container_name: opencti-minio
-    restart: unless-stopped
-    command: server /data
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    volumes:
-      - ./data/minio:/data
-
-  rabbitmq:
-    image: rabbitmq:3.13-management
-    container_name: opencti-rabbitmq
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-    volumes:
-      - ./data/rabbitmq:/var/lib/rabbitmq
-
-  opencti:
-    image: opencti/platform:6.1.10
-    container_name: opencti-platform
-    restart: unless-stopped
-    environment:
-      APP__PORT: ${APP__PORT}
-      APP__BASE_URL: ${OPENCTI_BASE_URL}
-      APP__ADMIN__EMAIL: ${OPENCTI_ADMIN_EMAIL}
-      APP__ADMIN__PASSWORD: ${OPENCTI_ADMIN_PASSWORD}
-      APP__ADMIN__TOKEN: ${OPENCTI_ADMIN_TOKEN}
-      REDIS__HOSTNAME: redis
-      ELASTICSEARCH__URL: http://elasticsearch:9200
-      MINIO__ENDPOINT: minio
-      MINIO__ACCESS_KEY: ${MINIO_ROOT_USER}
-      MINIO__SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      RABBITMQ__HOSTNAME: rabbitmq
-      RABBITMQ__USERNAME: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ__PASSWORD: ${RABBITMQ_DEFAULT_PASS}
-      SMTP__HOSTNAME: ${SMTP_HOSTNAME}
-      SMTP__PORT: ${SMTP_PORT}
-      SMTP__USERNAME: ${SMTP_USERNAME}
-      SMTP__PASSWORD: ${SMTP_PASSWORD}
-      SMTP__TLS: ${SMTP_TLS}
-    depends_on:
-      - redis
-      - elasticsearch
-      - minio
-      - rabbitmq
-    ports:
-      - "8080:8080"
-
-  worker:
-    image: opencti/worker:6.1.10
-    container_name: opencti-worker
-    restart: unless-stopped
-    environment:
-      OPENCTI_URL: http://opencti:8080
-      OPENCTI_TOKEN: ${OPENCTI_ADMIN_TOKEN}
-      WORKER_LOG_LEVEL: info
-    depends_on:
-      - opencti
+# Within the existing opencti service; not a complete Compose file.
+ports:
+  - "127.0.0.1:8080:8080"
 ```
 
-If you need more ingestion throughput, scale worker replicas:
+This assumes container port 8080 for the selected release. Do not merely add another mapping or an override that merges with the original wildcard mapping. Inspect effective mappings privately.
+
+Remove unnecessary host publication of search, Redis, RabbitMQ, and object-store ports. Internal Docker-network communication does not require publishing them. If your selected release needs browser access to an auxiliary endpoint, follow its documented routing/TLS design and restrict that endpoint too.
+
+From the administrator workstation:
+
+```bash
+ssh -N -L 18080:127.0.0.1:8080 labadmin@10.77.100.10
+```
+
+Open `http://127.0.0.1:18080` locally; the remote connection is inside SSH. Configure the browser-facing base URL accordingly using the release's variables and test redirects. Internal container URLs still use service names. For regular multiuser access, use a properly configured HTTPS reverse proxy with a matching external URL and private backend access.
+
+On OPNsense, allow administrator-to-server SSH on MGMT ingress. With a reverse proxy, permit only intended management/VPN clients to its address/port. Do not create WAN forwards to the stack.
+
+Ordinary UFW input rules may not protect Docker-published bridge ports. Verify loopback binding, routed restrictions, and backend-appropriate filtering using [Docker's firewall guidance](https://docs.docker.com/engine/network/packet-filtering-firewalls/). Do not rely on the old UFW-only example.
+
+If an integration manager mounts the Docker socket, it gains extensive Docker/host control. Review that trust boundary and use only the documented deployment mode you intend. Do not add the socket to ordinary feed connectors for convenience.
+
+## 5. Start and validate
+
+After reviewing versions, credentials, persistence, and exposure:
+
+```bash
+docker compose config --quiet
+docker compose pull
+docker compose up -d
+docker compose ps
+docker compose logs --tail=100 opencti worker
+```
+
+Adjust service names to the selected distribution. Inspect dependency health and logs privately. A running container is not necessarily ready. Verify administrator login, create a non-admin analyst, and save/search a small test record. Check persistence after restart and authorized file import/export.
+
+Scale workers only when queue/resource measurements justify it:
 
 ```bash
 docker compose up -d --scale worker=3
 ```
 
----
+The worker must not have a fixed `container_name`; Compose cannot scale that configuration. Remove the earlier tutorial's fixed worker name when adapting an existing file. Scaling also needs dependency capacity and will not fix exhausted memory or slow storage. See [Compose service configuration](https://docs.docker.com/reference/compose-file/services/).
 
-## Step 4: Start and Validate Stack
+## 6. Add one connector at a time
 
-Start:
+Use the selected connector's README and [OpenCTI deployment documentation](https://docs.opencti.io/latest/deployment/connectors/). A connector runs as a configured process/container, or through a supported integration manager in releases offering one. A dashboard entry alone does not deploy arbitrary feed software.
 
-```bash
-cd /opt/opencti
-docker compose up -d
-```
+1. Choose a relevant source, such as MITRE ATT&CK reference data or one IOC feed. Check current authentication, terms, and rate limits.
+2. Use a compatible image/configuration, stable unique connector ID, and dedicated identity with required permissions. Prefer scoped credentials where supported.
+3. Configure platform URL, scope, credentials, and connector-specific schedule/state options. Interval formats and historical-import defaults vary.
+4. Start it and verify registration, completed work, source provenance, and expected records. Registration alone is not successful ingestion.
+5. Add more feeds only after checking storage growth, duplication, marking handling, and API usage.
 
-Check services:
+Separate Compose projects need deliberately shared networking; `http://opencti:8080` does not resolve across unrelated networks automatically. Permit required feed egress without broad access to trusted internal systems.
 
-```bash
-docker compose ps
-docker compose logs -f opencti
-```
+## 7. Triage intelligence before automation
 
-First startup may take several minutes while dependencies initialize.
+Use an ingest -> review provenance -> enrich -> assess relevance/confidence -> decide -> document workflow. A domain or hash observable is not automatically a malicious indicator. Use supported confidence, marking, validity, and relationship fields. Labels help organization but do not replace structured semantics or access control.
 
-Open UI:
+Create views for new records, pending review, and expiring indicators. Record the rationale for blocking or dismissal. Test downstream export schemas and expiry/removal behavior before connecting SIEM, EDR, or firewall automation. Do not automatically block every imported record.
 
-- `http://<opencti-host-ip>:8080`
+SMTP, webhook, and notification behavior depends on the release and configuration. Test the exact trigger and recipient privately. Review payloads for sensitive entities, tokens, and internal URLs. Setting SMTP variables alone does not establish a complete alert workflow.
 
-Log in with values from `.env`:
+## 8. Use supported backups and test recovery
 
-- email: `OPENCTI_ADMIN_EMAIL`
-- password: `OPENCTI_ADMIN_PASSWORD`
+The previous stop-and-tar recipe for Elasticsearch data directories was not a supported backup method. Use its native snapshot/restore API and a configured snapshot repository. Elastic explicitly states that copying data directories is unsupported even when nodes are stopped. See [Elastic snapshot and restore](https://www.elastic.co/docs/deploy-manage/tools/snapshot-and-restore).
 
----
+Create a recovery plan covering the whole selected deployment:
 
-## Step 5: Initial OpenCTI Configuration
+- Search-backend snapshots with verified completion and compatible restore versions.
+- Object storage through its supported backup/versioning/export method, including uploaded files.
+- Pinned deployment files/images, private environment secrets, encryption keys, and connector identities/state.
+- Other required stateful services, using their documented recovery methods.
 
-After first login:
+Coordinate a maintenance window or ingestion quiescence where needed for a recoverable cross-service point. A search snapshot is not an atomic backup of every component. Record timing and recovery-point expectations. Encrypt/restrict backups and retain off-host copies.
 
-1. Verify timezone and platform settings in administration.
-2. Create a dedicated non-admin analyst account.
-3. Keep admin account for configuration only.
-4. Set organization name and labeling conventions.
+Restore into an isolated environment with outbound connectors/notifications disabled. Verify login, representative entities/relationships, attachments, connector state, and controlled new ingestion. Do not remove named volumes during routine maintenance. Keeping backup files without a restore test does not prove recoverability.
 
-Recommended label model:
+## 9. Upgrade with a recovery point
 
-- source labels: `otx`, `cisa`, `urlhaus`, `manual`
-- confidence labels: `high-confidence`, `medium-confidence`, `low-confidence`
-- status labels: `new`, `triaged`, `blocked`, `false-positive`
+1. Review release notes, supported upgrade paths, dependency changes, and migrations.
+2. Verify backups and record the working image digests/configuration.
+3. Test on a restored isolated copy where practical.
+4. Update the pinned platform, worker, connector, and dependency versions as required; validate configuration before pulling/recreating services.
+5. Recheck health, login, search, attachments, connector work, and resource usage.
 
----
+Pulling images alone does not upgrade a pinned tag to another release. Moving tags can change unexpectedly. Database migrations may prevent rollback by selecting an older image; retain compatible pre-upgrade data and configuration.
 
-## Step 6: Add Connectors and Threat Feeds
+## 10. Validation and troubleshooting
 
-OpenCTI gets most value when connectors are configured.
+| Symptom | Check |
+|---|---|
+| UI unavailable | Dependency health, tunnel/proxy, bind address, external URL |
+| Search backend fails | Version-specific kernel requirements, memory, disk, permissions |
+| Connector registered but idle | Credentials/scope, queue/worker health, scheduling, API limits |
+| Scaling fails | Fixed container_name, Compose configuration, resources |
+| Backend reachable from another zone | Published ports, Docker filtering, earlier firewall pass rules |
+| Restore loses attachments | Object-store backup and coordinated recovery point |
 
-### Core connectors to enable first
+- [ ] Installed versions/digests and private configuration are recorded.
+- [ ] Only authorized users reach the UI; backend ports are not unintentionally published.
+- [ ] Non-admin permissions and data markings behave as intended.
+- [ ] A controlled import and worker task complete successfully.
+- [ ] Restart preserves records and attachments.
+- [ ] Supported snapshots and all required state restore successfully.
+- [ ] No live credentials, identifying logs, or operational screenshots enter the website repository.
 
-- MITRE ATT&CK
-- CISA KEV
-- URLhaus
-- AlienVault OTX
-- OpenCTI data sets
-
-Connector setup path:
-
-1. Settings -> Connectors
-2. Add connector package/config (varies by connector type)
-3. Supply required API keys
-4. Set schedule intervals (start conservative)
-
-Practical schedule baseline:
-
-- critical feeds: every 1-4 hours
-- enrichment feeds: every 12-24 hours
-
-Do not enable every connector at once. Start with 2-3 trusted sources, validate data quality, then expand.
-
----
-
-## Step 7: IOC Workflow and Triage Process
-
-Suggested analyst flow:
-
-1. Ingest IOC from feed or manual report
-2. Normalize and tag (source, confidence, status)
-3. Enrich IOC (WHOIS, geo, malware context, ATT&CK mapping)
-4. Decide action:
-   - block
-   - monitor
-   - dismiss/false-positive
-5. Export or sync IOC to downstream controls (SIEM/EDR/firewall as needed)
-
-Create saved views for:
-
-- New high-confidence indicators
-- Indicators seen in last 24 hours
-- Indicators not yet triaged
-
----
-
-## Step 8: Notifications and Alerting
-
-OpenCTI notification behavior depends on version and connector choices, but common patterns are:
-
-- Email notifications via SMTP config
-- Webhook notifications to automation platform
-- Downstream alerting through SIEM (for example Wazuh) after IOC export/correlation
-
-If using SMTP from `.env`, test mail delivery by creating a user action that generates notification email.
-
-For chat notifications (Slack/Teams), preferred pattern is:
-
-1. OpenCTI exports IOC/incident metadata
-2. SIEM/SOAR handles thresholding and sends chat alerts
-
-This avoids noisy direct-notification floods.
-
----
-
-## Step 9: Security Hardening
-
-1. Place OpenCTI behind reverse proxy with TLS (Nginx/Caddy/Traefik).
-2. Restrict UI to management subnet or VPN clients.
-3. Do not expose Elasticsearch/Redis/RabbitMQ/MinIO ports publicly.
-4. Use host firewall to allow only required inbound ports.
-5. Rotate `.env` secrets periodically.
-6. Keep container images updated with pinned, tested versions.
-
-UFW example:
-
-```bash
-sudo ufw allow from 10.10.99.0/24 to any port 8080 proto tcp
-sudo ufw default deny incoming
-sudo ufw enable
-```
-
----
-
-## Step 10: Backups and Recovery
-
-Back up regularly:
-
-- `/opt/opencti/.env`
-- `/opt/opencti/docker-compose.yml`
-- `data/elasticsearch`
-- `data/minio`
-- `data/rabbitmq`
-- `data/redis`
-
-Example stop-backup-start approach:
-
-```bash
-cd /opt/opencti
-docker compose down
-tar -czf /opt/backups/opencti-$(date +%F).tar.gz /opt/opencti
-docker compose up -d
-```
-
-Test restore in a separate environment before trusting backups.
-
----
-
-## Step 11: Update Procedure
-
-When updating:
-
-```bash
-cd /opt/opencti
-docker compose pull
-docker compose up -d
-```
-
-After update:
-
-- confirm all containers healthy
-- check connector jobs are still running
-- verify user login and recent data ingestion
-
----
-
-## Common Troubleshooting
-
-1. UI never loads on 8080
-- check `docker compose ps`
-- check opencti logs
-- verify host firewall allows 8080
-
-2. Elasticsearch fails to start
-- confirm `vm.max_map_count=262144`
-- check disk space and permissions in `data/elasticsearch`
-
-3. Connectors not importing data
-- verify API keys
-- verify schedule enabled
-- verify worker container healthy
-
-4. Performance degrades over time
-- increase RAM
-- reduce connector frequency
-- scale workers (`--scale worker=3` or more)
-
----
-
-## Integration with Main Homelab Stack
-
-If you are also running the OPNsense lab stack:
-
-- place OpenCTI host in Security Stack segment (`10.10.100.0/24`)
-- restrict UI access to Management VLAN and WireGuard clients
-- correlate IOC intelligence with Wazuh events for operational detection context
-
----
-
-## Key Takeaways
-
-- OpenCTI is most effective when connectors and triage workflows are deliberate, not everything-enabled by default.
-- Docker deployment makes lab setup fast, but secrets and network exposure still need hardening.
-- Start small: core feeds, clean labels, and repeatable triage process.
-- Treat backups and restore testing as part of the deployment, not an afterthought.
-
----
-
-**Disclaimer:** This guide is for educational and lab use. Validate legal, data-handling, and operational policy requirements before production deployment.
+**Unverified locally:** installed release/edition, optional integration-manager requirements, resource capacity, connector compatibility, external URL/proxy behavior, and complete restoration. This review does not attest a tested production deployment.

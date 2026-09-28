@@ -38,7 +38,7 @@ On the host, inspect listeners and Docker-published mappings:
 
 ```bash
 sudo ss -lntup
-sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}'
+sudo docker ps --format 'table {% raw %}{{.Names}}\t{{.Image}}\t{{.Ports}}{% endraw %}'
 sudo docker compose config --services
 ```
 

@@ -26,6 +26,37 @@ Size CPU, memory, disk, and retention from the selected release's requirements a
 
 Install Docker Engine and Compose through [Docker's supported Ubuntu instructions](https://docs.docker.com/engine/install/ubuntu/). Docker-group membership grants powerful host control. Set search-backend kernel requirements, including `vm.max_map_count`, to the selected version's documented values and persist them appropriately; do not assume an older tuning value remains sufficient.
 
+### What each component does during an import
+
+```text
+Feed connector -> platform/API and ingestion work
+                         |
+                    queue + workers
+                         |
+                entities and relationships -> search backend
+                uploaded/original files   -> object storage
+                coordination/cache        -> Redis
+```
+
+This is a conceptual flow, not a map of every internal API call. It helps separate failure domains: a working login does not prove workers are consuming jobs, and a successful entity search does not prove that attached files can be restored.
+
+### Preflight and a private version record
+
+Run on the intended Linux host:
+
+```bash
+uname -m
+free -h
+df -h
+docker version
+docker compose version
+sysctl vm.max_map_count
+```
+
+If Docker is not installed, use the complete [Ubuntu host preparation](/posts/homelab-network-setup/#5-prepare-the-ubuntu-server) before returning here. Commands below assume authorized Docker access; otherwise prefix Docker commands with sudo. Keep Ubuntu, platform, dependency, connector, and Compose versions in a private deployment record.
+
+Choose a modest initial workload: one analyst, one controlled import, and one reference connector. Measure memory and storage growth before expanding. A full historical feed can be much larger than its download size after relationships and indexes are built. Put alerts on free disk and sustained memory pressure rather than waiting for the platform to stop ingesting.
+
 ## 2. Obtain complete deployment files
 
 Use a new private directory outside the website checkout. Do not overwrite an existing deployment:
@@ -42,6 +73,22 @@ git rev-parse HEAD
 ```
 
 Select a reviewed commit compatible with your chosen release. Retain its companion configuration mounts and environment templates. Pin each image to a compatible reviewed version/digest; a repository commit does not pin images using moving tags.
+
+### Review the checkout before using it
+
+Check the chosen release notes and repository history, then inspect the selected commit's files locally:
+
+```bash
+git status --short
+git log -1 --format='%h %s'
+ls -la
+```
+
+Expected: no pre-existing local modifications and the intended revision checked out. Keep the supplied main Compose file and referenced configuration files together. If it includes optional services, use its documented profiles or supported deployment mode; deleting arbitrary dependencies can leave references, health checks, or authentication flows broken.
+
+Review image lines for the platform, workers, connectors, and backends. Change moving references to reviewed compatible tags or digests and record the changes in your private deployment notes. Do not assume every component uses the same version number: the OpenCTI platform and connectors have their own compatibility relationships, while databases and message brokers have separate versions.
+
+The rest of this article describes how to configure and verify that complete checkout, rather than introducing an independently maintained miniature Compose stack that omits release-specific requirements.
 
 ## 3. Configure credentials and persistence
 
@@ -64,6 +111,64 @@ git check-ignore .env
 ```
 
 If the second command shows nothing, add `.env` to this private checkout's `.git/info/exclude` or an appropriate ignore rule. Do not commit credentials. Review named volumes and bind mounts, ownership, and free space. Avoid world-writable data directories. Archiving only the project directory does not include Docker named-volume contents.
+
+### Create the environment file without reusing sample secrets
+
+For the official layout containing `.env.sample`, copy it once into the fresh private checkout:
+
+```bash
+umask 077
+cp -n .env.sample .env
+chmod 600 .env
+nano .env
+```
+
+Do not overwrite an existing deployment's `.env`. Keep all required variables from the selected template, including optional-platform variables required by the deployment mode you chose. Replace sample passwords and identifiers locally. The [upstream environment template](https://github.com/OpenCTI-Platform/docker/blob/master/.env.sample) is useful for orientation, but the file from your selected commit is the one to configure.
+
+Use different generated values for different purposes. UUIDs and encryption keys have different format requirements. On a Linux host, a UUIDv4 can be generated locally with Python, while OpenSSL can generate random password/key material:
+
+```bash
+python3 -c 'import uuid; print(uuid.uuid4())'
+openssl rand -hex 32
+openssl rand -base64 32
+```
+
+Choose the output format required by each field; these outputs are not interchangeable. For example, follow the release's UUID requirement for an initial admin token, and its length/encoding requirement for an application encryption key. Store generated values in the private configuration/password manager and avoid shared terminals or recordings. Keep stable connector IDs across ordinary restarts so a restart is not confused with deploying a different connector.
+
+For a template using the current host/scheme/port split, understand these relationships before editing:
+
+| Setting | Meaning |
+|---|---|
+| External host/scheme/port | URL the analyst's browser actually uses |
+| Internal platform URL | Docker service URL used by workers/connectors |
+| Admin token | Initial privileged API credential, not a feed-specific API key |
+| Encryption key | Recovery-critical key; changing it can affect stored encrypted data |
+| Health-check access key | Credential for the configured health probe, not a public endpoint |
+| Project name | Affects Compose resource names; keep it stable for the deployment |
+
+The SSH example publishes host loopback port 8080 and uses browser port 18080 on the workstation. If the template uses one variable for both external URL and host publishing, explicitly edit the mapping so those two ports are not accidentally coupled. Inspect the resulting URL and mapping rather than guessing from a variable name.
+
+### Kernel prerequisite and configuration inspection
+
+The OpenCTI Docker guide currently shows `vm.max_map_count=1048575`, while current [Elasticsearch guidance](https://www.elastic.co/docs/deploy-manage/deploy/self-managed/vm-max-map-count) requires `1048576` or higher. For an Elasticsearch backend, use at least `1048576`; if you selected OpenSearch or another supported backend, follow that release's documented requirement instead:
+
+```bash
+printf '%s\n' 'vm.max_map_count=1048576' | sudo tee /etc/sysctl.d/99-opencti.conf
+sudo sysctl --system
+sysctl vm.max_map_count
+```
+
+Expected: the final read returns the intended value. Check for another sysctl file overriding it at boot. This is only a kernel limit; it does not allocate sufficient memory or tune the search service's heap for you.
+
+Before startup, use commands that do not dump all secret values:
+
+```bash
+docker compose config --quiet
+docker compose config --services
+docker compose config --images
+```
+
+Resolve every missing-variable warning. Review full resolved configuration only in a private terminal or owner-only temporary file, because environment expansion can reveal credentials. Confirm volume names, image pins, and every published address/port before starting containers.
 
 ## 4. Restrict exposure before startup
 
@@ -89,7 +194,7 @@ Open `http://127.0.0.1:18080` locally; the remote connection is inside SSH. Conf
 
 On OPNsense, allow administrator-to-server SSH on MGMT ingress. With a reverse proxy, permit only intended management/VPN clients to its address/port. Do not create WAN forwards to the stack.
 
-Ordinary UFW input rules may not protect Docker-published bridge ports. Verify loopback binding, routed restrictions, and backend-appropriate filtering using [Docker's firewall guidance](https://docs.docker.com/engine/network/packet-filtering-firewalls/). Do not rely on the old UFW-only example.
+Ordinary UFW input rules may not protect Docker-published bridge ports. Verify loopback binding, routed restrictions, and backend-appropriate filtering using [Docker's firewall guidance](https://docs.docker.com/engine/network/packet-filtering-firewalls/); UFW rules alone are not sufficient protection for those published ports.
 
 If an integration manager mounts the Docker socket, it gains extensive Docker/host control. Review that trust boundary and use only the documented deployment mode you intend. Do not add the socket to ordinary feed connectors for convenience.
 
@@ -113,7 +218,7 @@ Scale workers only when queue/resource measurements justify it:
 docker compose up -d --scale worker=3
 ```
 
-The worker must not have a fixed `container_name`; Compose cannot scale that configuration. Remove the earlier tutorial's fixed worker name when adapting an existing file. Scaling also needs dependency capacity and will not fix exhausted memory or slow storage. See [Compose service configuration](https://docs.docker.com/reference/compose-file/services/).
+The worker must not have a fixed `container_name`; Compose cannot scale that configuration. Remove `container_name` from the worker service if it exists in the Compose file you are adapting. Scaling also needs dependency capacity and will not fix exhausted memory or slow storage. See [Compose service configuration](https://docs.docker.com/reference/compose-file/services/).
 
 ## 6. Add one connector at a time
 
@@ -137,7 +242,7 @@ SMTP, webhook, and notification behavior depends on the release and configuratio
 
 ## 8. Use supported backups and test recovery
 
-The previous stop-and-tar recipe for Elasticsearch data directories was not a supported backup method. Use its native snapshot/restore API and a configured snapshot repository. Elastic explicitly states that copying data directories is unsupported even when nodes are stopped. See [Elastic snapshot and restore](https://www.elastic.co/docs/deploy-manage/tools/snapshot-and-restore).
+Do not back up Elasticsearch by copying or archiving its data directory, even while the node is stopped. Use its native snapshot/restore API and a configured snapshot repository. Elastic explicitly states that copying data directories is unsupported. See [Elastic snapshot and restore](https://www.elastic.co/docs/deploy-manage/tools/snapshot-and-restore).
 
 Create a recovery plan covering the whole selected deployment:
 

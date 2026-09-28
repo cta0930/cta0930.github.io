@@ -28,6 +28,32 @@ A host firewall on the same unrestricted LAN as personal computers is not an ade
 
 If your ISP uses CGNAT, local port forwarding does not create public reachability. Resolve that with the provider or choose an isolated cloud deployment. This example is IPv4-only; block unintended IPv6 exposure and verify the installer/host behavior.
 
+### Choose the path before imaging the host
+
+For the home-lab path, have these items ready: a sensor-only Ethernet segment, an OPNsense interface assigned to it, local console access to the sensor, a private ISC account, and an offsite test connection. Keep WAN forwarding disabled until administration and isolation tests pass.
+
+For a Raspberry Pi, use a supported 64-bit OS image and a reliable power supply/storage device. In the imager, configure only the account, key-based SSH, and network options needed for initial access. Do not embed account details or wireless credentials in a public screenshot. Wired Ethernet makes the single-interface model easier to reason about; disable unused wireless connectivity.
+
+For a VM, attach one virtual NIC to the isolated sensor network. A hypervisor bridge or port group attached to the ordinary LAN defeats the intended boundary even if the guest has a different-looking IP. Keep hypervisor management on a separate protected network and avoid shared folders, clipboard integration, or mounted credentials on the sensor.
+
+For cloud hosting, first secure the provider account and recovery console. Use an isolated network without trusted peer workloads, remove unnecessary attached roles and metadata access, and review both inbound and outbound policy. A directly addressed VM does not need the home OPNsense port-forward rules.
+
+### Record a private deployment worksheet
+
+| Item | Example / what to record |
+|---|---|
+| Sensor role | Dedicated disposable Internet sensor |
+| OS and architecture | Exact installed release and CPU architecture |
+| NIC | Actual name from `ip -br link`, not an assumed eth0 |
+| Sensor address | Example `10.77.110.10/24` |
+| Gateway / resolver | Example `10.77.110.1` / `10.77.100.10` |
+| Management source | Example `10.77.90.10/32` or an approved VPN peer |
+| Source revision | Installer commit recorded before installation |
+| Inbound services | Initially TCP 22 and 80 only in this design |
+| Recovery | Console access and rebuild instructions |
+
+The public guide uses examples; keep the filled-in worksheet private. Record the reason for every additional egress or inbound exception so later changes can be audited.
+
 ## 2. Register and install before public exposure
 
 Register through [ISC account settings](https://isc.sans.edu/myaccount.html). Keep the required account values and API key in a password manager; enter them locally when prompted. Do not include them in shell command lines, screenshots, or Git.
@@ -51,6 +77,58 @@ ssh -p 12222 dshield@10.77.110.10
 ```
 
 Confirm the generated policy accepts your routed management address. Do not assume being on the sensor's local subnet, or being behind NAT, is a sufficient administrative restriction. The installer configures redirection, logging, services, and reporting; review its generated state before exposing it.
+
+### Ubuntu preparation in detail
+
+On a fresh supported Ubuntu installation, apply updates and install the small set of prerequisites before running the sensor installer:
+
+```bash
+sudo apt update
+sudo apt upgrade
+sudo apt install -y git openssh-server
+ip -br address
+ip route
+timedatectl status
+```
+
+Expected: one intended sensor NIC, a default route through the sensor gateway, accurate time, and working name resolution. Review any reboot requirement before proceeding. Do not run Docker, OpenCTI, or another service stack on this host.
+
+If the `dshield` account was not created during OS installation, create it locally with a password usable for sudo and add it to the administrative group:
+
+```bash
+sudo adduser dshield
+sudo usermod -aG sudo dshield
+```
+
+Install the administrator's public SSH key for this account and verify access before disabling password login. Retain console recovery. Switch to that account for installation and test that sudo works:
+
+```bash
+sudo -iu dshield
+sudo -v
+```
+
+Run the clone/install sequence above from this user's home directory. Do not assume the cloud image's original user automatically has the same home directory or permissions. If using a different supported account model, follow that revision's OS instructions consistently.
+
+### Installer inputs and what they control
+
+Prompt wording changes between revisions. Answer from the private worksheet rather than mechanically selecting defaults:
+
+| Input area | What to verify |
+|---|---|
+| ISC credentials | Correct account/API values entered locally, never copied into the post |
+| Network interface | The actual interface carrying sensor traffic |
+| Administrative sources | Only the intended routed admin/VPN addresses, not all private ranges |
+| Local/trusted exemptions | Their effect on logging and honeypot redirects |
+| Real SSH administration | Confirm the final port and source restrictions |
+| Public address/reporting | Correct handling of upstream NAT and the observed Internet endpoint |
+
+Keep the installer log private. If installation fails, identify the first failed prerequisite or service operation before rerunning. Repeatedly layering package and firewall changes over an uncertain state can make recovery harder; a clean reinstall is often appropriate for a disposable sensor.
+
+### Post-install checkpoint
+
+Reconnect from the approved administrative source on the reported real SSH port. Keep the old session until the new one works. Check listeners and the project's status script, then reboot once and repeat. Do this before Internet exposure so a boot-time firewall or SSH error cannot strand an already exposed host.
+
+If administration fails after installation, use the console. Inspect the SSH listener, generated administrative source allowlist, actual routed source address, and upstream MGMT rule. Do not add a public WAN forward to the real SSH port to recover access.
 
 ## 3. Isolate before exposure
 
@@ -77,9 +155,26 @@ On **MGMT ingress**, allow only the administrator host to sensor TCP 12222. For 
 
 Check floating/group rules and remove any old broad pass rules. These controls apply to routed traffic, not other machines on the same segment. Cloud deployments need equivalent enforced egress containment and private/VPN administration. Avoid permitting an entire cloud network just because it is private address space.
 
+### Create the OPNsense objects
+
+1. Assign the dedicated physical port or VLAN as HONEYPOT, enable it, and set `10.77.110.1/24`. Leave upstream gateway unset.
+2. Set the sensor to `10.77.110.10/24` with that gateway. If using DHCP, configure its reservation/pool so there is no overlap with manually assigned hosts.
+3. Add a host alias `SENSOR` containing `10.77.110.10` and a host alias for each approved DNS, time, and optional log destination.
+4. Build the HONEYPOT ingress rules from the table. Choose IPv4 and source `SENSOR` for the explicit service passes. Source port stays any; destination port is the named service.
+5. Add the management pass on MGMT with source the admin host, destination SENSOR, TCP destination port 12222. Do not allow the whole sensor subnet to initiate management connections.
+6. Save/apply, open the live firewall log, and validate the allowed paths before creating WAN forwards.
+
+For an approved internal DNS server, a blanket private-network block placed before the DNS exception will break resolution. Conversely, an unrestricted HONEYPOT-to-any pass placed before the internal block will bypass containment. Read the rules in their effective order, including floating and group rules.
+
+### Containment evidence to retain privately
+
+Test from the sensor to a known active management service, such as server SSH, and verify a deny entry. From the administrator, verify that real sensor SSH still works. Then test a permitted DNS lookup and update/reporting connection. This combination checks both containment and usability.
+
+A sensor can still reply to an Internet connection already admitted by a stateful firewall. That is necessary for the honeypot to function. The egress policy above restricts **new sensor-initiated connections**; it is not a promise that an established adversary session cannot exchange data.
+
 ## 4. Preserve the installer's honeypot redirection
 
-The previous recipe's `22 -> 1222`, `80 -> 8080`, and `443 -> 8443` mappings were not a verified DShield port model. DShield uses host-side redirection; internal listener ports must not be inferred from another honeypot tutorial.
+DShield performs host-side redirection for its honeypot listeners. Do not translate WAN ports to guessed alternate sensor ports; forward the original destination ports to the sensor and verify the selected installer's generated rules.
 
 For a deliberately limited initial OPNsense exposure, forward the original TCP destination ports unchanged:
 
@@ -95,6 +190,43 @@ Inspect the installed redirect lists before optionally exposing Telnet, addition
 This selective exposure intentionally gathers less telemetry than upstream's broader sensor deployment model. It is not a full-port DShield collector. The [upstream architecture](https://github.com/DShield-ISC/dshield/blob/main/docs/dshield-architecture/Architecture.md) explains host redirection, but may lag the current installer; generated rules and verified listeners decide the actual port set.
 
 For a cloud VM, allow the same chosen original ports in the provider's firewall and leave redirection to the sensor. Private/VPN administration or provider console access should remain separate. On another NAT router, use the same original-port forwarding principle. Directly routed public addressing requires inbound filtering, not an extra OPNsense NAT rule.
+
+### Enter the first port forward
+
+In the IPv4 destination-NAT/port-forward editor, create one rule for SSH:
+
+| Field | Example |
+|---|---|
+| Interface / protocol | WAN / TCP |
+| Source / source port | Any / any |
+| Destination | WAN address |
+| Destination port | 22 |
+| Redirect target | SENSOR (`10.77.110.10`) |
+| Redirect target port | 22 |
+| Filter association | Associated pass rule |
+| Description | Internet SSH to isolated sensor |
+
+Repeat for HTTP with destination and redirect port 80. Apply, inspect the associated WAN rule, and verify the exact translated destination. Leave any NAT reflection option disabled for this workflow. Do not create an "all ports" forward as a troubleshooting shortcut.
+
+The packet path is Internet client -> OPNsense destination translation -> original sensor port -> DShield's host redirect -> honeypot listener. The real administrative listener is separate. Inspecting `ss` may show the final listener rather than a process bound directly to original port 22; the NAT table explains the rest of the path.
+
+### Diagnose inbound traffic at each hop
+
+During a brief external test, compare the WAN rule log with a short capture on the sensor:
+
+```bash
+# On the sensor, replace the interface name with the one actually installed.
+sudo tcpdump -ni <SENSOR_INTERFACE> -c 20 'tcp port 22 or tcp port 80'
+```
+
+Replace the angle-bracket placeholder before running; do not save or publish packet contents unnecessarily. Install the diagnostic tool through the permitted package path if it is not present.
+
+- Nothing at WAN: verify the external address, ISP reachability, upstream router, and test source.
+- WAN match but no sensor packet: inspect redirect target, interface route, and sensor addressing.
+- Sensor receives packets but no application response: inspect host redirects, listener/service health, and management-source exemptions.
+- Application responds but reporting is missing: inspect submission/status separately; transport success does not verify ingestion.
+
+Preserving source IPs matters because reporting, exemptions, and attribution depend on them. If all incoming connections appear to originate from a private router address, fix the NAT design before trusting the observations.
 
 ## 5. Keep host firewall ownership clear
 
@@ -143,5 +275,36 @@ Never supply real credentials to the honeypot. Test only systems you control. Av
 Monitor disk usage, reporting gaps, and unexpected outbound attempts. Follow the selected release's update procedure and rerun isolation/exposure tests after upgrades. Keep private configuration backups; rebuild a suspected compromised disposable sensor instead of restoring trust solely because a process restarted.
 
 Wazuh or another log collector is optional. Allow only its required destination/ports, use a sensor-specific identity, and treat every sensor event as untrusted input. Do not grant the sensor dashboard/admin privileges or broad security-stack access. Ensure any extra agent is compatible with the sensor's resource budget and upstream deployment model.
+
+### A repeatable validation record
+
+Use a short table like this in your private notes after installation and each update:
+
+| Test | Expected | Evidence |
+|---|---|---|
+| Admin -> real SSH | Success from approved source only | Listener plus successful key login |
+| External -> TCP 22/80 | Honeypot response | Original source/port in sensor observation |
+| External -> real SSH | No permitted connection | Edge policy and external test |
+| Sensor -> approved DNS/time | Success | Query/time state and matching pass |
+| Sensor -> trusted SSH/dashboard | Denied | Known-live destination and firewall deny |
+| Reporting | Accepted events in ISC account | Submission status and portal time window |
+| Reboot | Same policy and services return | Repeat above checks |
+
+Use timestamps with timezone in private notes to correlate firewall, sensor, and portal observations. Do not fabricate sample "successful" outputs in the published article. Distinguish a check that has been performed from one that is still a checklist item.
+
+### Reporting and maintenance troubleshooting
+
+```bash
+sudo /srv/dshield/status.sh
+df -h
+systemctl --failed --no-pager
+sudo journalctl --since '30 minutes ago' --priority=warning --no-pager
+```
+
+These are diagnostics, not proof of reporting by themselves. Use the installed revision's status output to identify the actual reporting job and relevant log paths. Confirm time, DNS, TLS connectivity, account credentials, and egress policy. An HTTP success from ISC does not establish that the API accepted your sensor submission.
+
+Before an update, record the working installer revision and back up private configuration. Follow that revision's update procedure, then compare management allowlists, redirects, egress policy, and listeners again. Updates may add services or change port handling; do not assume the upstream firewall should automatically expose every new listener.
+
+If compromise is suspected, disable the edge forwards, contain the sensor, preserve only the evidence needed for your investigation, and rebuild from trusted media. Do not reconnect the sensor to a trusted VLAN to make collection easier. Rotate credentials that may have been exposed and revalidate before restoring exposure.
 
 **Items requiring local confirmation:** selected DShield commit and OS, generated port redirects (especially HTTPS), permitted management sources, provider/NAT behavior, actual egress dependencies, and receipt of reports. Upstream architecture notes and current installer behavior can differ; this guide does not claim a runtime-verified build.
